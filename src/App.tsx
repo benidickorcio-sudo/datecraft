@@ -5,7 +5,7 @@ import {
   Heart, Calendar, MapPin, Plus, Shirt, CheckSquare, ExternalLink,
   Navigation, Sparkles, Trash2, Camera, LogOut, User,
   Pencil, CloudSun, Dices, Clock, History, BookmarkPlus,
-  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, Check, X, Loader2, ImagePlus
+  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, Check, X, Loader2, ImagePlus, KeyRound
 } from 'lucide-react';
 import './utils/leafletIcons';
 import { supabase } from './supabase';
@@ -168,7 +168,7 @@ export default function App() {
   const [partnerName, setPartnerName] = useState<string>(() => localStorage.getItem('dc_partner_name') || 'Partner');
 
   // Auth UI mode
-  const [authMode, setAuthMode] = useState<'create' | 'join'>('create');
+  const [authMode, setAuthMode] = useState<'create' | 'join'>('join');
   const [yourNameInput, setYourNameInput] = useState('');
   const [partnerNameInput, setPartnerNameInput] = useState('');
   const [joinCodeInput, setJoinCodeInput] = useState('');
@@ -200,7 +200,7 @@ export default function App() {
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [finishingPlanTargetId, setFinishingPlanTargetId] = useState<string | null>(null);
 
-  // Today string helper
+  // Date helper
   const todayString = new Date().toISOString().split('T')[0];
 
   // New Date form state
@@ -361,7 +361,7 @@ export default function App() {
     if (coupleId) locateUser();
   }, [coupleId]);
 
-  // Auth handlers
+  // Auth: Create Space
   const handleCreateSpace = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!yourNameInput.trim() || !partnerNameInput.trim()) return;
@@ -403,9 +403,10 @@ export default function App() {
     }
   };
 
+  // Auth: Join Space - JUST PASTE THE CODE (Automated Partner Name Resolution)
   const handleJoinSpace = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!joinCodeInput.trim() || !yourNameInput.trim()) return;
+    if (!joinCodeInput.trim()) return;
 
     setIsAuthLoading(true);
     const cleanCode = joinCodeInput.trim().toUpperCase();
@@ -423,19 +424,19 @@ export default function App() {
       return;
     }
 
-    const partner = data.user1_name.toLowerCase() === yourNameInput.trim().toLowerCase()
-      ? data.user2_name
-      : data.user1_name;
+    // Assign Creator as Partner and the Joiner as Partner 2 automatically!
+    const loggedInUser = data.user2_name; // e.g. Loraine
+    const otherPartner = data.user1_name; // e.g. Benidick
 
     localStorage.setItem('dc_couple_id', data.id);
     localStorage.setItem('dc_space_code', data.space_code);
-    localStorage.setItem('dc_current_user', yourNameInput.trim());
-    localStorage.setItem('dc_partner_name', partner);
+    localStorage.setItem('dc_current_user', loggedInUser);
+    localStorage.setItem('dc_partner_name', otherPartner);
 
     setCoupleId(data.id);
     setSpaceCode(data.space_code);
-    setCurrentUser(yourNameInput.trim());
-    setPartnerName(partner);
+    setCurrentUser(loggedInUser);
+    setPartnerName(otherPartner);
   };
 
   const handleLogout = () => {
@@ -473,7 +474,6 @@ export default function App() {
     setModalTasks(modalTasks.filter((_, i) => i !== index));
   };
 
-  // Open Create Date Modal with Fresh Values
   const handleOpenCreateModal = () => {
     const defaultCoords = userCoords || [14.5995, 120.9842];
     setPinnedCoords(defaultCoords);
@@ -920,7 +920,7 @@ export default function App() {
   }, 0);
   const partnerShare = totalCost - myShare;
 
-  // LOGIN SCREEN
+  // LOGIN SCREEN (SIMPLIFIED: JOINING ONLY REQUIRES THE CODE)
   if (!coupleId) {
     return (
       <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center p-4">
@@ -935,22 +935,53 @@ export default function App() {
 
           <div className="flex bg-stone-100 p-1 rounded-2xl mb-6">
             <button
-              onClick={() => setAuthMode('create')}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${authMode === 'create' ? 'bg-white shadow-xs text-stone-900' : 'text-stone-500'
-                }`}
-            >
-              Create Couple Space
-            </button>
-            <button
+              type="button"
               onClick={() => setAuthMode('join')}
               className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${authMode === 'join' ? 'bg-white shadow-xs text-stone-900' : 'text-stone-500'
                 }`}
             >
               Join Partner's Code
             </button>
+            <button
+              type="button"
+              onClick={() => setAuthMode('create')}
+              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${authMode === 'create' ? 'bg-white shadow-xs text-stone-900' : 'text-stone-500'
+                }`}
+            >
+              Create Couple Space
+            </button>
           </div>
 
-          {authMode === 'create' ? (
+          {authMode === 'join' ? (
+            <form onSubmit={handleJoinSpace} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1.5">Couple Space Code</label>
+                <div className="relative">
+                  <KeyRound size={16} className="absolute left-3.5 top-3 text-stone-400" />
+                  <input
+                    type="text"
+                    placeholder="e.g. LOVE-1964"
+                    value={joinCodeInput}
+                    onChange={(e) => setJoinCodeInput(e.target.value)}
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-300 text-sm font-mono uppercase tracking-wider text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                    required
+                    autoFocus
+                  />
+                </div>
+                <p className="text-[11px] text-stone-400 mt-1.5">
+                  Paste the code from your partner. Names and memories will sync automatically!
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isAuthLoading}
+                className="w-full mt-2 py-3 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isAuthLoading ? 'Connecting...' : 'Connect to Our Space'}
+              </button>
+            </form>
+          ) : (
             <form onSubmit={handleCreateSpace} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1.5">Your Name</label>
@@ -958,10 +989,10 @@ export default function App() {
                   <User size={16} className="absolute left-3.5 top-3 text-stone-400" />
                   <input
                     type="text"
-                    placeholder="e.g. Liam"
+                    placeholder="e.g. Benidick"
                     value={yourNameInput}
                     onChange={(e) => setYourNameInput(e.target.value)}
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-200 text-sm focus:ring-2 focus:ring-rose-400"
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
                     required
                   />
                 </div>
@@ -973,10 +1004,10 @@ export default function App() {
                   <Heart size={16} className="absolute left-3.5 top-3 text-rose-400" />
                   <input
                     type="text"
-                    placeholder="e.g. Sophia"
+                    placeholder="e.g. Loraine"
                     value={partnerNameInput}
                     onChange={(e) => setPartnerNameInput(e.target.value)}
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-200 text-sm focus:ring-2 focus:ring-rose-400"
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
                     required
                   />
                 </div>
@@ -985,46 +1016,9 @@ export default function App() {
               <button
                 type="submit"
                 disabled={isAuthLoading}
-                className="w-full mt-4 py-3 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2"
+                className="w-full mt-2 py-3 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isAuthLoading ? 'Creating Couple Space...' : 'Create Space & Generate Code'}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleJoinSpace} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1.5">Couple Space Code</label>
-                <input
-                  type="text"
-                  placeholder="e.g. LOVE-8421"
-                  value={joinCodeInput}
-                  onChange={(e) => setJoinCodeInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm font-mono uppercase tracking-wider focus:ring-2 focus:ring-rose-400"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1.5">Your Name</label>
-                <div className="relative">
-                  <User size={16} className="absolute left-3.5 top-3 text-stone-400" />
-                  <input
-                    type="text"
-                    placeholder="e.g. Sophia"
-                    value={yourNameInput}
-                    onChange={(e) => setYourNameInput(e.target.value)}
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-200 text-sm focus:ring-2 focus:ring-rose-400"
-                    required
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isAuthLoading}
-                className="w-full mt-4 py-3 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2"
-              >
-                {isAuthLoading ? 'Connecting...' : 'Connect to Our Space'}
               </button>
             </form>
           )}
@@ -1055,7 +1049,7 @@ export default function App() {
                   navigator.clipboard.writeText(spaceCode || '');
                   alert(`Copied Space Code: ${spaceCode}`);
                 }}
-                className="hover:text-rose-500"
+                className="hover:text-rose-500 cursor-pointer"
                 title="Copy code to share with partner"
               >
                 <Copy size={12} />
@@ -1067,7 +1061,7 @@ export default function App() {
         <div className="flex items-center gap-2">
           <button
             onClick={locateUser}
-            className="flex items-center gap-1.5 bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 px-3.5 py-2 rounded-full font-medium text-xs shadow-sm"
+            className="flex items-center gap-1.5 bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 px-3.5 py-2 rounded-full font-medium text-xs shadow-sm cursor-pointer"
           >
             <Navigation size={14} className={isLocating ? 'animate-spin text-blue-500' : 'text-blue-600'} />
             {isLocating ? 'Locating...' : 'My Live Location'}
@@ -1075,14 +1069,14 @@ export default function App() {
 
           <button
             onClick={handleOpenCreateModal}
-            className="flex items-center gap-1.5 bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-full font-medium text-xs shadow-sm"
+            className="flex items-center gap-1.5 bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-full font-medium text-xs shadow-sm cursor-pointer"
           >
             <Plus size={16} /> Plan a new date
           </button>
 
           <button
             onClick={handleLogout}
-            className="p-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-full transition-colors"
+            className="p-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-full transition-colors cursor-pointer"
             title="Log out"
           >
             <LogOut size={16} />
@@ -1094,9 +1088,9 @@ export default function App() {
       <div className="max-w-5xl mx-auto mt-4 flex items-center gap-2 border-b border-stone-200 pb-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('planner')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'planner'
-            ? 'bg-rose-500 text-white shadow-xs'
-            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'planner'
+              ? 'bg-rose-500 text-white shadow-xs'
+              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <Calendar size={14} /> Active Dates ({upcomingPlans.length})
@@ -1104,9 +1098,9 @@ export default function App() {
 
         <button
           onClick={() => setActiveTab('history')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'history'
-            ? 'bg-rose-500 text-white shadow-xs'
-            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'history'
+              ? 'bg-rose-500 text-white shadow-xs'
+              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <History size={14} /> Date Archive & Memories ({historyPlans.length})
@@ -1114,9 +1108,9 @@ export default function App() {
 
         <button
           onClick={() => setActiveTab('bucket')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'bucket'
-            ? 'bg-rose-500 text-white shadow-xs'
-            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'bucket'
+              ? 'bg-rose-500 text-white shadow-xs'
+              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <BookmarkPlus size={14} /> Bucket List ({bucketList.length})
@@ -1124,9 +1118,9 @@ export default function App() {
 
         <button
           onClick={() => setActiveTab('budget')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'budget'
-            ? 'bg-rose-500 text-white shadow-xs'
-            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'budget'
+              ? 'bg-rose-500 text-white shadow-xs'
+              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <DollarSign size={14} /> Budget & Bill Splitter
@@ -1147,7 +1141,7 @@ export default function App() {
               </p>
               <button
                 onClick={handleOpenCreateModal}
-                className="px-6 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl text-xs font-bold shadow-md inline-flex items-center gap-2"
+                className="px-6 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl text-xs font-bold shadow-md inline-flex items-center gap-2 cursor-pointer"
               >
                 <Plus size={16} /> Plan a New Date
               </button>
@@ -1167,9 +1161,9 @@ export default function App() {
                         <button
                           key={plan.id}
                           onClick={() => setSelectedPlanId(plan.id)}
-                          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 ${isSelected
-                            ? 'bg-rose-500 text-white shadow-xs'
-                            : 'bg-stone-50 text-stone-600 border border-stone-200 hover:bg-stone-100'
+                          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${isSelected
+                              ? 'bg-rose-500 text-white shadow-xs'
+                              : 'bg-stone-50 text-stone-600 border border-stone-200 hover:bg-stone-100'
                             }`}
                         >
                           <Calendar size={12} />
@@ -1201,7 +1195,7 @@ export default function App() {
                                 e.stopPropagation();
                                 handleDeletePlan(currentPlan.id);
                               }}
-                              className="text-stone-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors"
+                              className="text-stone-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
                               title="Delete this date plan"
                             >
                               <Trash2 size={14} />
@@ -1267,7 +1261,7 @@ export default function App() {
                                 e.stopPropagation();
                                 handleDeletePlan(currentPlan.id);
                               }}
-                              className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-colors"
+                              className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-colors cursor-pointer"
                               title="Delete Date Plan"
                             >
                               <Trash2 size={15} />
@@ -1279,7 +1273,7 @@ export default function App() {
                                 e.stopPropagation();
                                 handleOpenFinishModal(currentPlan.id);
                               }}
-                              className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-full text-xs font-semibold transition-all flex items-center gap-1 shadow-xs"
+                              className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-full text-xs font-semibold transition-all flex items-center gap-1 shadow-xs cursor-pointer"
                             >
                               <CheckCircle2 size={14} /> Mark as Done
                             </button>
@@ -1330,7 +1324,7 @@ export default function App() {
                               <button
                                 type="button"
                                 onClick={handleDeleteOutfitPhoto}
-                                className="p-2 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors backdrop-blur-xs shadow"
+                                className="p-2 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors backdrop-blur-xs shadow cursor-pointer"
                                 title="Revert to preset photo"
                               >
                                 <Trash2 size={15} />
@@ -1358,9 +1352,9 @@ export default function App() {
                                   key={preset.id}
                                   type="button"
                                   onClick={() => handleSelectOutfitType(preset.label)}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all flex items-center gap-1.5 ${isSelected
-                                    ? 'bg-rose-500 text-white border-rose-500 shadow-xs font-semibold'
-                                    : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all flex items-center gap-1.5 cursor-pointer ${isSelected
+                                      ? 'bg-rose-500 text-white border-rose-500 shadow-xs font-semibold'
+                                      : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
                                     }`}
                                 >
                                   <span
@@ -1406,7 +1400,7 @@ export default function App() {
                                 </label>
                                 <button
                                   onClick={() => handleDeleteTask(task.id)}
-                                  className="text-stone-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 p-1 transition-opacity"
+                                  className="text-stone-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 p-1 transition-opacity cursor-pointer"
                                   title="Delete task"
                                 >
                                   <Trash2 size={13} />
@@ -1426,7 +1420,7 @@ export default function App() {
                           />
                           <button
                             type="submit"
-                            className="px-3 py-1.5 bg-stone-900 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold transition-colors"
+                            className="px-3 py-1.5 bg-stone-900 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer"
                           >
                             Add
                           </button>
@@ -1466,7 +1460,7 @@ export default function App() {
                           type="button"
                           onClick={spinRoulette}
                           disabled={isSpinning}
-                          className="px-3 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-2xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-transform active:scale-95 flex-shrink-0"
+                          className="px-3 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-2xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-transform active:scale-95 flex-shrink-0 cursor-pointer"
                         >
                           <Dices size={15} className={isSpinning ? 'animate-spin' : ''} />
                           {isSpinning ? 'Spinning...' : 'Spin'}
@@ -1563,7 +1557,7 @@ export default function App() {
 
                     <button
                       onClick={() => handleDeletePlan(plan.id)}
-                      className="absolute top-4 right-4 p-2 bg-white/90 hover:bg-rose-50 text-stone-300 hover:text-rose-600 rounded-full transition-colors shadow-2xs z-10"
+                      className="absolute top-4 right-4 p-2 bg-white/90 hover:bg-rose-50 text-stone-300 hover:text-rose-600 rounded-full transition-colors shadow-2xs z-10 cursor-pointer"
                       title="Delete archived memory"
                     >
                       <Trash2 size={15} />
@@ -1663,7 +1657,7 @@ export default function App() {
               </select>
               <button
                 type="submit"
-                className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1.5"
+                className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Plus size={15} /> Add Idea
               </button>
@@ -1694,7 +1688,7 @@ export default function App() {
                       </span>
                       <button
                         onClick={() => handleDeleteBucketItem(item.id)}
-                        className="text-stone-300 hover:text-rose-500 p-1"
+                        className="text-stone-300 hover:text-rose-500 p-1 cursor-pointer"
                         title="Delete"
                       >
                         ✕
@@ -1706,7 +1700,7 @@ export default function App() {
 
                   <button
                     onClick={() => handleConvertBucketToPlan(item)}
-                    className="mt-4 w-full py-2 bg-stone-900 hover:bg-rose-500 text-white text-xs font-medium rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                    className="mt-4 w-full py-2 bg-stone-900 hover:bg-rose-500 text-white text-xs font-medium rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                   >
                     Convert to Planned Date <ArrowRight size={13} />
                   </button>
@@ -1733,7 +1727,7 @@ export default function App() {
               <select
                 value={currentPlan?.id || ''}
                 onChange={(e) => setSelectedPlanId(e.target.value)}
-                className="px-3.5 py-2 rounded-xl border border-stone-200 text-xs font-semibold focus:ring-2 focus:ring-rose-400"
+                className="px-3.5 py-2 rounded-xl border border-stone-200 text-xs font-semibold focus:ring-2 focus:ring-rose-400 cursor-pointer"
               >
                 {upcomingPlans.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -1791,7 +1785,7 @@ export default function App() {
                   <select
                     value={newBudgetPaidBy}
                     onChange={(e) => setNewBudgetPaidBy(e.target.value as any)}
-                    className="px-3.5 py-2 rounded-xl border border-stone-200 text-xs"
+                    className="px-3.5 py-2 rounded-xl border border-stone-200 text-xs cursor-pointer"
                   >
                     <option value="50/50">Split 50 / 50</option>
                     <option value="You">Treated by {currentUser}</option>
@@ -1799,7 +1793,7 @@ export default function App() {
                   </select>
                   <button
                     type="submit"
-                    className="py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-semibold"
+                    className="py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-semibold cursor-pointer"
                   >
                     Add to Expense
                   </button>
@@ -1819,7 +1813,7 @@ export default function App() {
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="font-extrabold text-stone-900 text-sm">₱{b.cost.toLocaleString()}</span>
-                          <button onClick={() => handleDeleteBudgetItem(b.id)} className="text-stone-400 hover:text-rose-600">
+                          <button onClick={() => handleDeleteBudgetItem(b.id)} className="text-stone-400 hover:text-rose-600 cursor-pointer">
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -1833,7 +1827,7 @@ export default function App() {
         </section>
       )}
 
-      {/* CREATE DATE MODAL (HIGH Z-INDEX & GUARANTEED CLICKABLE INPUTS) */}
+      {/* CREATE DATE MODAL */}
       {isModalOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999]"
@@ -1853,7 +1847,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors"
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
               >
                 <X size={18} />
               </button>
@@ -1889,7 +1883,7 @@ export default function App() {
                   <select
                     value={newVibe}
                     onChange={(e) => setNewVibe(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer"
                   >
                     <option>Cozy & Romantic</option>
                     <option>Fancy Dinner</option>
@@ -1933,8 +1927,8 @@ export default function App() {
                         key={preset.id}
                         onClick={() => setSelectedOutfitType(preset.label)}
                         className={`p-2 rounded-2xl border cursor-pointer transition-all flex items-center gap-3 ${isSelected
-                          ? 'border-rose-500 bg-rose-50/60 shadow-xs'
-                          : 'border-stone-200 hover:border-stone-300 bg-stone-50/50'
+                            ? 'border-rose-500 bg-rose-50/60 shadow-xs'
+                            : 'border-stone-200 hover:border-stone-300 bg-stone-50/50'
                           }`}
                       >
                         <img
@@ -1980,7 +1974,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => handleRemoveModalTask(idx)}
-                        className="hover:text-rose-500 text-stone-400 ml-1"
+                        className="hover:text-rose-500 text-stone-400 ml-1 cursor-pointer"
                       >
                         <X size={12} />
                       </button>
@@ -2008,7 +2002,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={handleAddModalTask}
-                    className="px-4 py-2 bg-stone-900 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-colors"
+                    className="px-4 py-2 bg-stone-900 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
                   >
                     + Add Stop
                   </button>
@@ -2029,7 +2023,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={(e) => handleSearchLocation(e, false)}
-                    className="px-3.5 py-2 bg-stone-800 hover:bg-stone-900 text-white text-xs font-medium rounded-xl"
+                    className="px-3.5 py-2 bg-stone-800 hover:bg-stone-900 text-white text-xs font-medium rounded-xl cursor-pointer"
                   >
                     {isSearching ? '...' : 'Find'}
                   </button>
@@ -2054,14 +2048,14 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-xs text-stone-600 hover:bg-stone-100 rounded-xl"
+                  className="px-4 py-2 text-xs text-stone-600 hover:bg-stone-100 rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isUploadingPhoto}
-                  className="px-6 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-full text-xs font-bold shadow-xs flex items-center gap-1.5"
+                  className="px-6 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-full text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
                 >
                   {isUploadingPhoto ? 'Uploading Image...' : 'Save Date Plan'}
                 </button>
@@ -2088,7 +2082,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsEditModalOpen(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors"
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
               >
                 <X size={18} />
               </button>
@@ -2122,7 +2116,7 @@ export default function App() {
                   <select
                     value={editVibe}
                     onChange={(e) => setEditVibe(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer"
                   >
                     <option>Cozy & Romantic</option>
                     <option>Fancy Dinner</option>
@@ -2138,7 +2132,7 @@ export default function App() {
                 <select
                   value={editOutfitType}
                   onChange={(e) => setEditOutfitType(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs font-medium text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs font-medium text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer"
                 >
                   {outfitPresets.map((p) => (
                     <option key={p.id} value={p.label}>{p.label} - {p.desc}</option>
@@ -2150,13 +2144,13 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleDeletePlan(editPlanId)}
-                  className="text-xs text-rose-600 font-semibold flex items-center gap-1 hover:bg-rose-50 p-2 rounded-lg"
+                  className="text-xs text-rose-600 font-semibold flex items-center gap-1 hover:bg-rose-50 p-2 rounded-lg cursor-pointer"
                 >
                   <Trash2 size={14} /> Delete Date
                 </button>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-xs text-stone-600">Cancel</button>
-                  <button type="submit" className="px-5 py-2 bg-rose-500 text-white rounded-full text-xs font-medium">Save Changes</button>
+                  <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-xs text-stone-600 cursor-pointer">Cancel</button>
+                  <button type="submit" className="px-5 py-2 bg-rose-500 text-white rounded-full text-xs font-medium cursor-pointer">Save Changes</button>
                 </div>
               </div>
             </form>
@@ -2181,7 +2175,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsFinishModalOpen(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors"
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
               >
                 <X size={18} />
               </button>
@@ -2197,7 +2191,7 @@ export default function App() {
                       key={star}
                       type="button"
                       onClick={() => setFinishRating(star)}
-                      className="p-1 text-amber-400"
+                      className="p-1 text-amber-400 cursor-pointer"
                     >
                       <Star size={24} fill={star <= finishRating ? 'currentColor' : 'none'} />
                     </button>
@@ -2216,7 +2210,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setFinishMemoryPhoto(null)}
-                      className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors"
+                      className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors cursor-pointer"
                     >
                       <X size={14} />
                     </button>
@@ -2255,13 +2249,13 @@ export default function App() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setIsFinishModalOpen(false)} className="px-4 py-2 text-xs text-stone-600">
+                <button type="button" onClick={() => setIsFinishModalOpen(false)} className="px-4 py-2 text-xs text-stone-600 cursor-pointer">
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isUploadingMemoryPhoto}
-                  className="px-5 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-full text-xs font-bold shadow-xs"
+                  className="px-5 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-full text-xs font-bold shadow-xs cursor-pointer"
                 >
                   Save to Scrapbook
                 </button>
