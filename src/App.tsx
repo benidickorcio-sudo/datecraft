@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import {
   Heart, Calendar, MapPin, Plus, Shirt, CheckSquare, ExternalLink,
   Navigation, Sparkles, Trash2, Camera, LogOut, User,
   Pencil, CloudSun, Dices, Clock, History, BookmarkPlus,
-  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, Check, X, Loader2, ImagePlus, KeyRound
+  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, Check, X, Loader2, ImagePlus, KeyRound, Radio
 } from 'lucide-react';
 import './utils/leafletIcons';
 import { supabase } from './supabase';
@@ -91,16 +91,22 @@ const rouletteIdeas = [
   'Cozy Bookstore & Coffee Date'
 ];
 
-const userLocationIcon = L.divIcon({
+// Pins styling
+const createUserIcon = (name: string, colorHex: string) => L.divIcon({
   className: 'custom-live-pin',
   html: `
-    <div style="position: relative; width: 22px; height: 22px;">
-      <span style="position: absolute; inset: 0; border-radius: 9999px; background-color: #3b82f6; opacity: 0.75; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></span>
-      <span style="position: relative; display: block; width: 22px; height: 22px; border-radius: 9999px; background-color: #2563eb; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></span>
+    <div style="position: relative; display: flex; flex-direction: column; align-items: center;">
+      <div style="background: white; border: 1.5px solid ${colorHex}; border-radius: 9999px; padding: 2px 8px; font-size: 10px; font-weight: 700; color: ${colorHex}; box-shadow: 0 2px 6px rgba(0,0,0,0.15); margin-bottom: 4px; white-space: nowrap;">
+        ${name}
+      </div>
+      <div style="position: relative; width: 22px; height: 22px;">
+        <span style="position: absolute; inset: 0; border-radius: 9999px; background-color: ${colorHex}; opacity: 0.75; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></span>
+        <span style="position: relative; display: block; width: 22px; height: 22px; border-radius: 9999px; background-color: ${colorHex}; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></span>
+      </div>
     </div>
   `,
-  iconSize: [22, 22],
-  iconAnchor: [11, 11],
+  iconSize: [80, 50],
+  iconAnchor: [40, 45],
 });
 
 function MapFlyToController({ centerCoords }: { centerCoords: [number, number] | null }) {
@@ -158,6 +164,19 @@ async function uploadToSupabaseStorage(file: File): Promise<string | null> {
   }
 }
 
+// Calculate distance between two GPS coordinates in kilometers
+function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return (R * c);
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'planner' | 'history' | 'bucket' | 'budget'>('planner');
 
@@ -166,6 +185,7 @@ export default function App() {
   const [spaceCode, setSpaceCode] = useState<string | null>(() => localStorage.getItem('dc_space_code'));
   const [currentUser, setCurrentUser] = useState<string>(() => localStorage.getItem('dc_current_user') || '');
   const [partnerName, setPartnerName] = useState<string>(() => localStorage.getItem('dc_partner_name') || 'Partner');
+  const [isCreator, setIsCreator] = useState<boolean>(() => localStorage.getItem('dc_is_creator') === 'true');
 
   // Auth UI mode
   const [authMode, setAuthMode] = useState<'create' | 'join'>('join');
@@ -182,9 +202,12 @@ export default function App() {
   const [newBucketNotes, setNewBucketNotes] = useState('');
   const [newBucketVibe, setNewBucketVibe] = useState('Cozy & Romantic');
 
-  // Location & App state
+  // Real-time GPS Sharing
   const [userCoords, setUserCoords] = useState<[number, number] | null>(null);
+  const [partnerCoords, setPartnerCoords] = useState<[number, number] | null>(null);
+  const [partnerLastSeen, setPartnerLastSeen] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
+  const watchIdRef = useRef<number | null>(null);
 
   // Weather state
   const [weatherInfo, setWeatherInfo] = useState<{ temp: number; code: number } | null>(null);
@@ -200,10 +223,8 @@ export default function App() {
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [finishingPlanTargetId, setFinishingPlanTargetId] = useState<string | null>(null);
 
-  // Date helper
+  // Form states
   const todayString = new Date().toISOString().split('T')[0];
-
-  // New Date form state
   const [newTitle, setNewTitle] = useState('');
   const [newDate, setNewDate] = useState(todayString);
   const [newVibe, setNewVibe] = useState('Cozy & Romantic');
@@ -213,7 +234,6 @@ export default function App() {
   const [newOutfitPhotos, setNewOutfitPhotos] = useState<Record<string, string | null>>({});
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
-  // Custom checklist items inside modal
   const [modalTasks, setModalTasks] = useState<string[]>([
     'Visit Church & Pray together',
     'Try cute cafe / coffee date'
@@ -246,7 +266,66 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [mapCenterTarget, setMapCenterTarget] = useState<[number, number] | null>(null);
 
-  // Fetch plans from Supabase
+  // Real-time position broadcast to Supabase
+  const broadcastLocation = async (lat: number, lng: number) => {
+    if (!coupleId) return;
+    const nowIso = new Date().toISOString();
+
+    if (isCreator) {
+      await supabase.from('couples').update({
+        user1_lat: lat,
+        user1_lng: lng,
+        user1_updated_at: nowIso
+      }).eq('id', coupleId);
+    } else {
+      await supabase.from('couples').update({
+        user2_lat: lat,
+        user2_lng: lng,
+        user2_updated_at: nowIso
+      }).eq('id', coupleId);
+    }
+  };
+
+  // Start continuous location tracker
+  const startLiveTracking = () => {
+    if (!navigator.geolocation) return;
+    setIsLocating(true);
+
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+        setUserCoords(coords);
+        setIsLocating(false);
+        broadcastLocation(coords[0], coords[1]);
+      },
+      () => setIsLocating(false),
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
+    );
+  };
+
+  // Fetch partner location from Supabase
+  const fetchCoupleDetails = async (cId: string) => {
+    const { data } = await supabase.from('couples').select('*').eq('id', cId).single();
+    if (data) {
+      if (isCreator) {
+        if (data.user2_lat && data.user2_lng) {
+          setPartnerCoords([data.user2_lat, data.user2_lng]);
+          setPartnerLastSeen(data.user2_updated_at);
+        }
+      } else {
+        if (data.user1_lat && data.user1_lng) {
+          setPartnerCoords([data.user1_lat, data.user1_lng]);
+          setPartnerLastSeen(data.user1_updated_at);
+        }
+      }
+    }
+  };
+
+  // Fetch plans
   const fetchDatePlans = async (cId: string) => {
     const { data, error } = await supabase
       .from('date_plans')
@@ -277,7 +356,6 @@ export default function App() {
     }
   };
 
-  // Fetch bucket list
   const fetchBucketList = async (cId: string) => {
     const { data, error } = await supabase
       .from('bucket_items')
@@ -295,6 +373,8 @@ export default function App() {
 
     fetchDatePlans(coupleId);
     fetchBucketList(coupleId);
+    fetchCoupleDetails(coupleId);
+    startLiveTracking();
 
     const channel = supabase
       .channel('realtime_all_updates')
@@ -308,12 +388,33 @@ export default function App() {
         { event: '*', schema: 'public', table: 'bucket_items', filter: `couple_id=eq.${coupleId}` },
         () => fetchBucketList(coupleId)
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'couples', filter: `id=eq.${coupleId}` },
+        (payload: any) => {
+          const updated = payload.new;
+          if (isCreator) {
+            if (updated.user2_lat && updated.user2_lng) {
+              setPartnerCoords([updated.user2_lat, updated.user2_lng]);
+              setPartnerLastSeen(updated.user2_updated_at);
+            }
+          } else {
+            if (updated.user1_lat && updated.user1_lng) {
+              setPartnerCoords([updated.user1_lat, updated.user1_lng]);
+              setPartnerLastSeen(updated.user1_updated_at);
+            }
+          }
+        }
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
     };
-  }, [coupleId]);
+  }, [coupleId, isCreator]);
 
   const upcomingPlans = plans.filter((p) => !p.completed);
   const historyPlans = plans.filter((p) => Boolean(p.completed));
@@ -341,25 +442,6 @@ export default function App() {
       .catch(() => setWeatherInfo(null))
       .finally(() => setIsWeatherLoading(false));
   }, [currentPlan?.lat, currentPlan?.lng]);
-
-  const locateUser = () => {
-    if (!navigator.geolocation) return;
-    setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
-        setUserCoords(coords);
-        setPinnedCoords(coords);
-        setIsLocating(false);
-      },
-      () => setIsLocating(false),
-      { enableHighAccuracy: true }
-    );
-  };
-
-  useEffect(() => {
-    if (coupleId) locateUser();
-  }, [coupleId]);
 
   // Auth: Create Space
   const handleCreateSpace = async (e: React.FormEvent) => {
@@ -393,17 +475,19 @@ export default function App() {
       localStorage.setItem('dc_space_code', data.space_code);
       localStorage.setItem('dc_current_user', data.user1_name);
       localStorage.setItem('dc_partner_name', data.user2_name);
+      localStorage.setItem('dc_is_creator', 'true');
 
       setCoupleId(data.id);
       setSpaceCode(data.space_code);
       setCurrentUser(data.user1_name);
       setPartnerName(data.user2_name);
+      setIsCreator(true);
       setPlans([]);
       setBucketList([]);
     }
   };
 
-  // Auth: Join Space - JUST PASTE THE CODE (Automated Partner Name Resolution)
+  // Auth: Join Space
   const handleJoinSpace = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCodeInput.trim()) return;
@@ -424,19 +508,20 @@ export default function App() {
       return;
     }
 
-    // Assign Creator as Partner and the Joiner as Partner 2 automatically!
-    const loggedInUser = data.user2_name; // e.g. Loraine
-    const otherPartner = data.user1_name; // e.g. Benidick
+    const loggedInUser = data.user2_name;
+    const otherPartner = data.user1_name;
 
     localStorage.setItem('dc_couple_id', data.id);
     localStorage.setItem('dc_space_code', data.space_code);
     localStorage.setItem('dc_current_user', loggedInUser);
     localStorage.setItem('dc_partner_name', otherPartner);
+    localStorage.setItem('dc_is_creator', 'false');
 
     setCoupleId(data.id);
     setSpaceCode(data.space_code);
     setCurrentUser(loggedInUser);
     setPartnerName(otherPartner);
+    setIsCreator(false);
   };
 
   const handleLogout = () => {
@@ -445,6 +530,11 @@ export default function App() {
     setSpaceCode(null);
     setPlans([]);
     setBucketList([]);
+    setUserCoords(null);
+    setPartnerCoords(null);
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
   };
 
   const handleModalPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -920,7 +1010,12 @@ export default function App() {
   }, 0);
   const partnerShare = totalCost - myShare;
 
-  // LOGIN SCREEN (SIMPLIFIED: JOINING ONLY REQUIRES THE CODE)
+  // Distance between you and partner
+  const coupleDistanceKm = (userCoords && partnerCoords)
+    ? getDistanceKm(userCoords[0], userCoords[1], partnerCoords[0], partnerCoords[1])
+    : null;
+
+  // LOGIN SCREEN
   if (!coupleId) {
     return (
       <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center p-4">
@@ -930,7 +1025,7 @@ export default function App() {
               <Heart size={28} fill="currentColor" />
             </div>
             <h1 className="text-2xl font-bold text-stone-900 tracking-tight">DateCraft</h1>
-            <p className="text-xs text-stone-500 mt-1">Real-time couple planner with synced spaces</p>
+            <p className="text-xs text-stone-500 mt-1">Real-time couple planner with synced spaces & live GPS</p>
           </div>
 
           <div className="flex bg-stone-100 p-1 rounded-2xl mb-6">
@@ -969,7 +1064,7 @@ export default function App() {
                   />
                 </div>
                 <p className="text-[11px] text-stone-400 mt-1.5">
-                  Paste the code from your partner. Names and memories will sync automatically!
+                  Paste the code from your partner. Names and live locations will sync automatically!
                 </p>
               </div>
 
@@ -1060,11 +1155,11 @@ export default function App() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={locateUser}
+            onClick={startLiveTracking}
             className="flex items-center gap-1.5 bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 px-3.5 py-2 rounded-full font-medium text-xs shadow-sm cursor-pointer"
           >
             <Navigation size={14} className={isLocating ? 'animate-spin text-blue-500' : 'text-blue-600'} />
-            {isLocating ? 'Locating...' : 'My Live Location'}
+            {isLocating ? 'Locating...' : 'My Live GPS'}
           </button>
 
           <button
@@ -1089,8 +1184,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('planner')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'planner'
-              ? 'bg-rose-500 text-white shadow-xs'
-              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+            ? 'bg-rose-500 text-white shadow-xs'
+            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <Calendar size={14} /> Active Dates ({upcomingPlans.length})
@@ -1099,8 +1194,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('history')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'history'
-              ? 'bg-rose-500 text-white shadow-xs'
-              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+            ? 'bg-rose-500 text-white shadow-xs'
+            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <History size={14} /> Date Archive & Memories ({historyPlans.length})
@@ -1109,8 +1204,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('bucket')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'bucket'
-              ? 'bg-rose-500 text-white shadow-xs'
-              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+            ? 'bg-rose-500 text-white shadow-xs'
+            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <BookmarkPlus size={14} /> Bucket List ({bucketList.length})
@@ -1119,8 +1214,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('budget')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'budget'
-              ? 'bg-rose-500 text-white shadow-xs'
-              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+            ? 'bg-rose-500 text-white shadow-xs'
+            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <DollarSign size={14} /> Budget & Bill Splitter
@@ -1162,8 +1257,8 @@ export default function App() {
                           key={plan.id}
                           onClick={() => setSelectedPlanId(plan.id)}
                           className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${isSelected
-                              ? 'bg-rose-500 text-white shadow-xs'
-                              : 'bg-stone-50 text-stone-600 border border-stone-200 hover:bg-stone-100'
+                            ? 'bg-rose-500 text-white shadow-xs'
+                            : 'bg-stone-50 text-stone-600 border border-stone-200 hover:bg-stone-100'
                             }`}
                         >
                           <Calendar size={12} />
@@ -1353,8 +1448,8 @@ export default function App() {
                                   type="button"
                                   onClick={() => handleSelectOutfitType(preset.label)}
                                   className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all flex items-center gap-1.5 cursor-pointer ${isSelected
-                                      ? 'bg-rose-500 text-white border-rose-500 shadow-xs font-semibold'
-                                      : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                                    ? 'bg-rose-500 text-white border-rose-500 shadow-xs font-semibold'
+                                    : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
                                     }`}
                                 >
                                   <span
@@ -1430,7 +1525,7 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Right Column: Weather, Roulette, Map */}
+                {/* Right Column: Weather, Roulette, Live GPS Map */}
                 {currentPlan && (
                   <div className="md:col-span-2 space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1468,40 +1563,68 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="bg-white p-4 rounded-3xl border border-stone-200 shadow-sm flex flex-col h-[480px]">
-                      <div className="flex items-center justify-between mb-3 px-2">
+                    <div className="bg-white p-4 rounded-3xl border border-stone-200 shadow-sm flex flex-col h-[490px]">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-2">
                         <div className="flex items-center gap-2">
                           <h3 className="font-bold text-sm">Live Location & Date Spot</h3>
                           {userCoords && (
                             <span className="flex items-center gap-1 text-[11px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium">
                               <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>
-                              Live GPS
+                              You (Live)
+                            </span>
+                          )}
+                          {partnerCoords && (
+                            <span className="flex items-center gap-1 text-[11px] text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full font-medium">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
+                              {partnerName} (Live)
                             </span>
                           )}
                         </div>
-                        <span className="text-xs text-stone-400">
-                          Pin: {currentPlan.lat.toFixed(3)}, {currentPlan.lng.toFixed(3)}
-                        </span>
+
+                        {/* Distance Indicator */}
+                        {coupleDistanceKm !== null && (
+                          <div className="bg-rose-500 text-white px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 shadow-xs">
+                            <Radio size={12} className="animate-pulse" />
+                            <span>{coupleDistanceKm < 1 ? `${Math.round(coupleDistanceKm * 1000)}m apart` : `${coupleDistanceKm.toFixed(1)} km apart`}</span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex-1 w-full rounded-2xl overflow-hidden border border-stone-200 relative z-0">
                         <MapContainer
-                          center={userCoords || [currentPlan.lat, currentPlan.lng]}
+                          center={userCoords || partnerCoords || [currentPlan.lat, currentPlan.lng]}
                           zoom={13}
                           scrollWheelZoom={true}
                           style={{ height: '100%', width: '100%' }}
-                          key={`main-map-${currentPlan.id}-${currentPlan.lat}`}
+                          key={`main-map-${currentPlan.id}`}
                         >
                           <TileLayer
                             attribution='&copy; OpenStreetMap contributors'
                             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                           />
                           <MapFlyToController centerCoords={userCoords} />
+
+                          {/* Your Live Pin */}
                           {userCoords && (
-                            <Marker position={userCoords} icon={userLocationIcon}>
-                              <Popup>📍 You are here right now!</Popup>
+                            <Marker position={userCoords} icon={createUserIcon(currentUser, '#2563eb')}>
+                              <Popup>
+                                <strong>{currentUser} (You)</strong><br />
+                                Live location updated
+                              </Popup>
                             </Marker>
                           )}
+
+                          {/* Partner's Live Pin */}
+                          {partnerCoords && (
+                            <Marker position={partnerCoords} icon={createUserIcon(partnerName, '#e11d48')}>
+                              <Popup>
+                                <strong>{partnerName}</strong><br />
+                                {partnerLastSeen ? `Updated: ${new Date(partnerLastSeen).toLocaleTimeString()}` : 'Live now'}
+                              </Popup>
+                            </Marker>
+                          )}
+
+                          {/* Date Destination Pin */}
                           <Marker position={[currentPlan.lat, currentPlan.lng]}>
                             <Popup>
                               <strong>{currentPlan.title}</strong>
@@ -1520,7 +1643,7 @@ export default function App() {
         </>
       )}
 
-      {/* ARCHIVE TAB (POLAROID COUPLE SCRAPBOOK) */}
+      {/* ARCHIVE TAB */}
       {activeTab === 'history' && (
         <section className="max-w-5xl mx-auto mt-6">
           <div className="flex justify-between items-center mb-6">
@@ -1927,8 +2050,8 @@ export default function App() {
                         key={preset.id}
                         onClick={() => setSelectedOutfitType(preset.label)}
                         className={`p-2 rounded-2xl border cursor-pointer transition-all flex items-center gap-3 ${isSelected
-                            ? 'border-rose-500 bg-rose-50/60 shadow-xs'
-                            : 'border-stone-200 hover:border-stone-300 bg-stone-50/50'
+                          ? 'border-rose-500 bg-rose-50/60 shadow-xs'
+                          : 'border-stone-200 hover:border-stone-300 bg-stone-50/50'
                           }`}
                       >
                         <img
