@@ -4,8 +4,8 @@ import L from 'leaflet';
 import {
   Heart, Calendar, MapPin, Plus, Shirt, CheckSquare, ExternalLink,
   Navigation, Search, Sparkles, Check, Trash2, Camera, LogOut, Lock, User,
-  Pencil, Layers, CloudSun, Dices, Clock, History, BookmarkPlus,
-  DollarSign, Music, Star, ArrowRight, CheckCircle2, X
+  Pencil, CloudSun, Dices, Clock, History, BookmarkPlus,
+  DollarSign, Music, Star, ArrowRight, CheckCircle2
 } from 'lucide-react';
 import './utils/leafletIcons';
 
@@ -41,7 +41,6 @@ interface BucketItem {
   notes: string;
 }
 
-// Famous Romantic OPM songs in the Philippines
 const opmSoundtracks = [
   { id: '0uZFcsx96wzbixsULmrg8o', title: 'Pasilyo', artist: 'SunKissed Lola' },
   { id: '4rG58514iT0bF3x7mH6F07', title: 'Palagi', artist: 'TJ Monterde' },
@@ -877,8 +876,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('planner')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'planner'
-              ? 'bg-rose-500 text-white shadow-xs'
-              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+            ? 'bg-rose-500 text-white shadow-xs'
+            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <Calendar size={14} /> Active Date Planner
@@ -887,8 +886,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('history')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'history'
-              ? 'bg-rose-500 text-white shadow-xs'
-              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+            ? 'bg-rose-500 text-white shadow-xs'
+            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <History size={14} /> Date Archive & Memories ({historyPlans.length})
@@ -897,8 +896,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('bucket')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'bucket'
-              ? 'bg-rose-500 text-white shadow-xs'
-              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+            ? 'bg-rose-500 text-white shadow-xs'
+            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <BookmarkPlus size={14} /> Bucket List ({bucketList.length})
@@ -907,8 +906,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('budget')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'budget'
-              ? 'bg-rose-500 text-white shadow-xs'
-              : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+            ? 'bg-rose-500 text-white shadow-xs'
+            : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
           <DollarSign size={14} /> Budget & Bill Splitter
@@ -1020,8 +1019,8 @@ export default function App() {
                       type="button"
                       onClick={() => handleSelectSpotifySong(song.id)}
                       className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all ${isPlaying
-                          ? 'bg-rose-500 text-white border-rose-500 shadow-2xs font-semibold'
-                          : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                        ? 'bg-rose-500 text-white border-rose-500 shadow-2xs font-semibold'
+                        : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
                         }`}
                     >
                       🎵 {song.title} - {song.artist}
@@ -1105,8 +1104,8 @@ export default function App() {
                         type="button"
                         onClick={() => handleSelectOutfitType(preset.label)}
                         className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all flex items-center gap-1.5 ${isSelected
-                            ? 'bg-stone-900 text-white border-stone-900 shadow-xs'
-                            : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:border-stone-300'
+                          ? 'bg-stone-900 text-white border-stone-900 shadow-xs'
+                          : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:border-stone-300'
                           }`}
                       >
                         <span
@@ -1378,10 +1377,9 @@ export default function App() {
         </section>
       )}
 
-      {/* TAB 4: BUDGET & BILL SPLITTER (NOW FULLY EDITABLE) */}
+      {/* TAB 4: BUDGET & BILL SPLITTER */}
       {activeTab === 'budget' && (
         <section className="max-w-5xl mx-auto mt-6 space-y-6">
-          {/* Quick Date Switcher within Budget Tab */}
           <div className="bg-white p-4 rounded-3xl border border-stone-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <DollarSign size={20} className="text-rose-500" />
@@ -1403,7 +1401,6 @@ export default function App() {
             </select>
           </div>
 
-          {/* Cards Summary */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
             <div className="bg-white p-5 rounded-3xl border border-stone-200 shadow-sm">
               <p className="text-xs font-bold text-stone-400 uppercase">Total Date Budget</p>
@@ -1458,7 +1455,6 @@ export default function App() {
               </button>
             </form>
 
-            {/* Editable Expenses List */}
             <div className="mt-6 divide-y divide-stone-100">
               <div className="py-2 flex items-center justify-between text-[11px] font-bold uppercase text-stone-400 px-2">
                 <span>Expense Item</span>
@@ -1479,7 +1475,6 @@ export default function App() {
                     <div className="flex items-center gap-3">
                       <span className="font-extrabold text-stone-900 text-sm">₱{b.cost.toLocaleString()}</span>
 
-                      {/* EDIT & DELETE EXPENSE BUTTONS */}
                       <button
                         type="button"
                         onClick={() => handleOpenEditBudgetItem(b)}
@@ -1796,8 +1791,8 @@ export default function App() {
                         key={preset.id}
                         onClick={() => setEditOutfitType(preset.label)}
                         className={`p-2 rounded-xl border cursor-pointer transition-all flex items-center gap-3 ${isSelected
-                            ? 'border-rose-500 bg-rose-50/50 shadow-xs'
-                            : 'border-stone-200 hover:border-stone-300'
+                          ? 'border-rose-500 bg-rose-50/50 shadow-xs'
+                          : 'border-stone-200 hover:border-stone-300'
                           }`}
                       >
                         {displayPhoto ? (
@@ -1991,8 +1986,8 @@ export default function App() {
                         key={preset.id}
                         onClick={() => setSelectedOutfitType(preset.label)}
                         className={`p-2 rounded-xl border cursor-pointer transition-all flex items-center gap-3 ${isSelected
-                            ? 'border-rose-500 bg-rose-50/50 shadow-xs'
-                            : 'border-stone-200 hover:border-stone-300'
+                          ? 'border-rose-500 bg-rose-50/50 shadow-xs'
+                          : 'border-stone-200 hover:border-stone-300'
                           }`}
                       >
                         {displayPhoto ? (
