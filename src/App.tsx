@@ -5,16 +5,24 @@ import {
   Heart, Calendar, MapPin, Plus, Shirt, CheckSquare, ExternalLink,
   Navigation, Sparkles, Trash2, Camera, LogOut, User,
   Pencil, CloudSun, Dices, Clock, History, BookmarkPlus,
-  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, Check, X, Loader2, ImagePlus, KeyRound, Radio
+  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, Check, X, Loader2, ImagePlus, KeyRound, Radio, Wand2
 } from 'lucide-react';
 import './utils/leafletIcons';
 import { supabase } from './supabase';
+
+interface Member {
+  id: string;
+  name: string;
+  lat?: number;
+  lng?: number;
+  updated_at?: string;
+}
 
 interface BudgetItem {
   id: number;
   item: string;
   cost: number;
-  paidBy: 'You' | 'Partner' | '50/50';
+  paidBy: string;
 }
 
 interface DatePlan {
@@ -91,47 +99,35 @@ const rouletteIdeas = [
   'Cozy Bookstore & Coffee Date'
 ];
 
-// Pins styling
+const memberColors = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#ea580c', '#4f46e5'];
+
 const createUserIcon = (name: string, colorHex: string) => L.divIcon({
   className: 'custom-live-pin',
   html: `
     <div style="position: relative; display: flex; flex-direction: column; align-items: center;">
-      <div style="background: white; border: 1.5px solid ${colorHex}; border-radius: 9999px; padding: 2px 8px; font-size: 10px; font-weight: 700; color: ${colorHex}; box-shadow: 0 2px 6px rgba(0,0,0,0.15); margin-bottom: 4px; white-space: nowrap;">
+      <div style="background: white; border: 1.5px solid ${colorHex}; border-radius: 9999px; padding: 2px 8px; font-size: 10px; font-weight: 700; color: ${colorHex}; box-shadow: 0 2px 6px rgba(0,0,0,0.15); margin-bottom: 3px; white-space: nowrap;">
         ${name}
       </div>
-      <div style="position: relative; width: 22px; height: 22px;">
+      <div style="position: relative; width: 20px; height: 20px;">
         <span style="position: absolute; inset: 0; border-radius: 9999px; background-color: ${colorHex}; opacity: 0.75; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></span>
-        <span style="position: relative; display: block; width: 22px; height: 22px; border-radius: 9999px; background-color: ${colorHex}; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></span>
+        <span style="position: relative; display: block; width: 20px; height: 20px; border-radius: 9999px; background-color: ${colorHex}; border: 2.5px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></span>
       </div>
     </div>
   `,
-  iconSize: [80, 50],
-  iconAnchor: [40, 45],
+  iconSize: [70, 45],
+  iconAnchor: [35, 40],
 });
 
 function MapFlyToController({ centerCoords }: { centerCoords: [number, number] | null }) {
   const map = useMap();
   useEffect(() => {
-    if (centerCoords) {
-      map.flyTo(centerCoords, 14, { duration: 1.2 });
-    }
+    if (centerCoords) map.flyTo(centerCoords, 14, { duration: 1.2 });
   }, [centerCoords, map]);
   return null;
 }
 
-function LocationPicker({
-  position,
-  setPosition,
-}: {
-  position: [number, number] | null;
-  setPosition: (pos: [number, number]) => void;
-}) {
-  useMapEvents({
-    click(e) {
-      setPosition([e.latlng.lat, e.latlng.lng]);
-    },
-  });
-
+function LocationPicker({ position, setPosition }: { position: [number, number] | null; setPosition: (pos: [number, number]) => void; }) {
+  useMapEvents({ click(e) { setPosition([e.latlng.lat, e.latlng.lng]); } });
   return position ? <Marker position={position} /> : null;
 }
 
@@ -141,17 +137,8 @@ async function uploadToSupabaseStorage(file: File): Promise<string | null> {
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
     const filePath = `outfits/${fileName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('outfits')
-      .upload(filePath, file, { cacheControl: '3600', upsert: true });
-
-    if (uploadError) {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-    }
+    const { error } = await supabase.storage.from('outfits').upload(filePath, file, { cacheControl: '3600', upsert: true });
+    if (error) throw error;
 
     const { data } = supabase.storage.from('outfits').getPublicUrl(filePath);
     return data.publicUrl;
@@ -164,7 +151,6 @@ async function uploadToSupabaseStorage(file: File): Promise<string | null> {
   }
 }
 
-// Calculate distance between two GPS coordinates in kilometers
 function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -180,21 +166,27 @@ function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
 export default function App() {
   const [activeTab, setActiveTab] = useState<'planner' | 'history' | 'bucket' | 'budget'>('planner');
 
-  // Multi-Couple Auth State
+  // Space Membership State (Persistent across sessions)
   const [coupleId, setCoupleId] = useState<string | null>(() => localStorage.getItem('dc_couple_id'));
   const [spaceCode, setSpaceCode] = useState<string | null>(() => localStorage.getItem('dc_space_code'));
-  const [currentUser, setCurrentUser] = useState<string>(() => localStorage.getItem('dc_current_user') || '');
-  const [partnerName, setPartnerName] = useState<string>(() => localStorage.getItem('dc_partner_name') || 'Partner');
-  const [isCreator, setIsCreator] = useState<boolean>(() => localStorage.getItem('dc_is_creator') === 'true');
+  const [currentUserId, setCurrentUserId] = useState<string>(() => localStorage.getItem('dc_user_id') || '');
+  const [currentUserName, setCurrentUserName] = useState<string>(() => localStorage.getItem('dc_user_name') || '');
+  const [members, setMembers] = useState<Member[]>([]);
+  const [maxCapacity, setMaxCapacity] = useState<number>(2);
 
-  // Auth UI mode
-  const [authMode, setAuthMode] = useState<'create' | 'join'>('join');
-  const [yourNameInput, setYourNameInput] = useState('');
-  const [partnerNameInput, setPartnerNameInput] = useState('');
+  // Auth Inputs
+  const [authMode, setAuthMode] = useState<'create' | 'join'>('create');
+  const [createNameInput, setCreateNameInput] = useState(() => localStorage.getItem('dc_remembered_name') || '');
+  const [customCodeInput, setCustomCodeInput] = useState('');
+  const [maxMembersInput, setMaxMembersInput] = useState<number>(2);
   const [joinCodeInput, setJoinCodeInput] = useState('');
+  const [joinNameInput, setJoinNameInput] = useState(() => localStorage.getItem('dc_remembered_name') || '');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
-  // Date plans & Bucket list
+  // Returning User Flag
+  const rememberedName = localStorage.getItem('dc_remembered_name');
+
+  // Plans & Items
   const [plans, setPlans] = useState<DatePlan[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
   const [bucketList, setBucketList] = useState<BucketItem[]>([]);
@@ -202,22 +194,18 @@ export default function App() {
   const [newBucketNotes, setNewBucketNotes] = useState('');
   const [newBucketVibe, setNewBucketVibe] = useState('Cozy & Romantic');
 
-  // Real-time GPS Sharing
+  // GPS Live State
   const [userCoords, setUserCoords] = useState<[number, number] | null>(null);
-  const [partnerCoords, setPartnerCoords] = useState<[number, number] | null>(null);
-  const [partnerLastSeen, setPartnerLastSeen] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const watchIdRef = useRef<number | null>(null);
 
-  // Weather state
+  // Weather & Extra
   const [weatherInfo, setWeatherInfo] = useState<{ temp: number; code: number } | null>(null);
   const [isWeatherLoading, setIsWeatherLoading] = useState(false);
-
-  // Roulette
   const [isSpinning, setIsSpinning] = useState(false);
   const [pickedIdea, setPickedIdea] = useState<string | null>(null);
 
-  // Modals state
+  // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
@@ -241,7 +229,7 @@ export default function App() {
   const [taskInput, setTaskInput] = useState('');
   const [inlineTaskInput, setInlineTaskInput] = useState('');
 
-  // Edit Date form state
+  // Edit Date Form State
   const [editPlanId, setEditPlanId] = useState('');
   const [editTitle, setEditTitle] = useState('');
   const [editDate, setEditDate] = useState('');
@@ -250,50 +238,46 @@ export default function App() {
   const [editCoords, setEditCoords] = useState<[number, number] | null>(null);
   const [editOutfitType, setEditOutfitType] = useState(outfitPresets[0].label);
 
-  // Finish memory state
+  // Finish Memory Modal State
   const [finishRating, setFinishRating] = useState(5);
   const [finishMemory, setFinishMemory] = useState('');
   const [finishMemoryPhoto, setFinishMemoryPhoto] = useState<string | null>(null);
   const [isUploadingMemoryPhoto, setIsUploadingMemoryPhoto] = useState(false);
 
-  // Budget states
+  // Budget
   const [newBudgetItem, setNewBudgetItem] = useState('');
   const [newBudgetCost, setNewBudgetCost] = useState('');
-  const [newBudgetPaidBy, setNewBudgetPaidBy] = useState<'You' | 'Partner' | '50/50'>('50/50');
+  const [newBudgetPaidBy, setNewBudgetPaidBy] = useState('');
 
-  // Search states for map
+  // Search Map
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [mapCenterTarget, setMapCenterTarget] = useState<[number, number] | null>(null);
 
-  // Real-time position broadcast to Supabase
-  const broadcastLocation = async (lat: number, lng: number) => {
-    if (!coupleId) return;
-    const nowIso = new Date().toISOString();
-
-    if (isCreator) {
-      await supabase.from('couples').update({
-        user1_lat: lat,
-        user1_lng: lng,
-        user1_updated_at: nowIso
-      }).eq('id', coupleId);
-    } else {
-      await supabase.from('couples').update({
-        user2_lat: lat,
-        user2_lng: lng,
-        user2_updated_at: nowIso
-      }).eq('id', coupleId);
-    }
+  const generateRandomCode = () => {
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    setCustomCodeInput(`LOVE-${randomNum}`);
   };
 
-  // Start continuous location tracker
+  const broadcastLocation = async (lat: number, lng: number) => {
+    if (!coupleId || !currentUserId) return;
+    const nowIso = new Date().toISOString();
+
+    const { data } = await supabase.from('couples').select('members').eq('id', coupleId).single();
+    if (!data) return;
+
+    const currentMembers: Member[] = data.members || [];
+    const updated = currentMembers.map((m) =>
+      m.id === currentUserId ? { ...m, lat, lng, updated_at: nowIso } : m
+    );
+
+    await supabase.from('couples').update({ members: updated }).eq('id', coupleId);
+  };
+
   const startLiveTracking = () => {
     if (!navigator.geolocation) return;
     setIsLocating(true);
-
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-    }
+    if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
@@ -307,34 +291,18 @@ export default function App() {
     );
   };
 
-  // Fetch partner location from Supabase
-  const fetchCoupleDetails = async (cId: string) => {
+  const fetchSpaceDetails = async (cId: string) => {
     const { data } = await supabase.from('couples').select('*').eq('id', cId).single();
     if (data) {
-      if (isCreator) {
-        if (data.user2_lat && data.user2_lng) {
-          setPartnerCoords([data.user2_lat, data.user2_lng]);
-          setPartnerLastSeen(data.user2_updated_at);
-        }
-      } else {
-        if (data.user1_lat && data.user1_lng) {
-          setPartnerCoords([data.user1_lat, data.user1_lng]);
-          setPartnerLastSeen(data.user1_updated_at);
-        }
-      }
+      setMembers(data.members || []);
+      setMaxCapacity(data.max_members || 2);
     }
   };
 
-  // Fetch plans
   const fetchDatePlans = async (cId: string) => {
-    const { data, error } = await supabase
-      .from('date_plans')
-      .select('*')
-      .eq('couple_id', cId)
-      .order('date', { ascending: true });
-
+    const { data, error } = await supabase.from('date_plans').select('*').eq('couple_id', cId).order('date', { ascending: true });
     if (!error && data) {
-      const formatted: DatePlan[] = data.map((d: any) => ({
+      setPlans(data.map((d: any) => ({
         id: d.id,
         couple_id: d.couple_id,
         title: d.title,
@@ -351,21 +319,13 @@ export default function App() {
         rating: d.rating,
         bestMemory: d.best_memory,
         budgetItems: d.budget_items || [],
-      }));
-      setPlans(formatted);
+      })));
     }
   };
 
   const fetchBucketList = async (cId: string) => {
-    const { data, error } = await supabase
-      .from('bucket_items')
-      .select('*')
-      .eq('couple_id', cId)
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setBucketList(data);
-    }
+    const { data, error } = await supabase.from('bucket_items').select('*').eq('couple_id', cId).order('created_at', { ascending: false });
+    if (data) setBucketList(data);
   };
 
   useEffect(() => {
@@ -373,71 +333,38 @@ export default function App() {
 
     fetchDatePlans(coupleId);
     fetchBucketList(coupleId);
-    fetchCoupleDetails(coupleId);
+    fetchSpaceDetails(coupleId);
     startLiveTracking();
 
     const channel = supabase
-      .channel('realtime_all_updates')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'date_plans', filter: `couple_id=eq.${coupleId}` },
-        () => fetchDatePlans(coupleId)
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'bucket_items', filter: `couple_id=eq.${coupleId}` },
-        () => fetchBucketList(coupleId)
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'couples', filter: `id=eq.${coupleId}` },
-        (payload: any) => {
-          const updated = payload.new;
-          if (isCreator) {
-            if (updated.user2_lat && updated.user2_lng) {
-              setPartnerCoords([updated.user2_lat, updated.user2_lng]);
-              setPartnerLastSeen(updated.user2_updated_at);
-            }
-          } else {
-            if (updated.user1_lat && updated.user1_lng) {
-              setPartnerCoords([updated.user1_lat, updated.user1_lng]);
-              setPartnerLastSeen(updated.user1_updated_at);
-            }
-          }
-        }
-      )
+      .channel(`space_live_${coupleId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'date_plans', filter: `couple_id=eq.${coupleId}` }, () => fetchDatePlans(coupleId))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bucket_items', filter: `couple_id=eq.${coupleId}` }, () => fetchBucketList(coupleId))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'couples', filter: `id=eq.${coupleId}` }, (payload: any) => {
+        setMembers(payload.new.members || []);
+        setMaxCapacity(payload.new.max_members || 2);
+      })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
     };
-  }, [coupleId, isCreator]);
+  }, [coupleId]);
 
   const upcomingPlans = plans.filter((p) => !p.completed);
   const historyPlans = plans.filter((p) => Boolean(p.completed));
   const currentPlan = upcomingPlans.find((p) => p.id === selectedPlanId) || upcomingPlans[0] || null;
-
   const activeOutfitPreset = outfitPresets.find((p) => p.label === currentPlan?.dressCode) || outfitPresets[0];
   const activeOutfitImage = currentPlan?.outfit_photos?.[currentPlan?.dressCode] || activeOutfitPreset.defaultImage;
 
-  // Weather fetch
   useEffect(() => {
     if (!currentPlan) return;
     setIsWeatherLoading(true);
-    fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${currentPlan.lat}&longitude=${currentPlan.lng}&current=temperature_2m,weather_code`
-    )
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${currentPlan.lat}&longitude=${currentPlan.lng}&current=temperature_2m,weather_code`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.current) {
-          setWeatherInfo({
-            temp: Math.round(data.current.temperature_2m),
-            code: data.current.weather_code,
-          });
-        }
+        if (data.current) setWeatherInfo({ temp: Math.round(data.current.temperature_2m), code: data.current.weather_code });
       })
       .catch(() => setWeatherInfo(null))
       .finally(() => setIsWeatherLoading(false));
@@ -446,48 +373,53 @@ export default function App() {
   // Auth: Create Space
   const handleCreateSpace = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!yourNameInput.trim() || !partnerNameInput.trim()) return;
+    if (!createNameInput.trim()) return;
 
     setIsAuthLoading(true);
-    const generatedCode = 'LOVE-' + Math.floor(1000 + Math.random() * 9000);
 
-    const { data, error } = await supabase
-      .from('couples')
-      .insert([
-        {
-          space_code: generatedCode,
-          user1_name: yourNameInput.trim(),
-          user2_name: partnerNameInput.trim(),
-        }
-      ])
-      .select()
-      .single();
+    const rawCode = customCodeInput.trim() || `LOVE-${Math.floor(1000 + Math.random() * 9000)}`;
+    const finalCode = rawCode.toUpperCase().replace(/\s+/g, '-');
+
+    const myId = 'usr_' + Date.now();
+    const myName = createNameInput.trim();
+    const initialMembers: Member[] = [{ id: myId, name: myName, updated_at: new Date().toISOString() }];
+
+    const { data, error } = await supabase.from('couples').insert([{
+      space_code: finalCode,
+      max_members: maxMembersInput,
+      members: initialMembers,
+      user1_name: myName,
+      user2_name: ''
+    }]).select().single();
 
     setIsAuthLoading(false);
 
     if (error) {
-      alert('Error creating space. Please try again.');
+      if (error.code === '23505') {
+        alert(`The space code "${finalCode}" is already taken! Please pick a different code.`);
+      } else {
+        alert(`Error creating space: ${error.message}`);
+      }
       return;
     }
 
     if (data) {
       localStorage.setItem('dc_couple_id', data.id);
       localStorage.setItem('dc_space_code', data.space_code);
-      localStorage.setItem('dc_current_user', data.user1_name);
-      localStorage.setItem('dc_partner_name', data.user2_name);
-      localStorage.setItem('dc_is_creator', 'true');
+      localStorage.setItem('dc_user_id', myId);
+      localStorage.setItem('dc_user_name', myName);
+      localStorage.setItem('dc_remembered_name', myName); // Remembers device user
 
       setCoupleId(data.id);
       setSpaceCode(data.space_code);
-      setCurrentUser(data.user1_name);
-      setPartnerName(data.user2_name);
-      setIsCreator(true);
-      setPlans([]);
-      setBucketList([]);
+      setCurrentUserId(myId);
+      setCurrentUserName(myName);
+      setMembers(initialMembers);
+      setMaxCapacity(maxMembersInput);
     }
   };
 
-  // Auth: Join Space
+  // Auth: Join Space with Smart Name Detection
   const handleJoinSpace = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCodeInput.trim()) return;
@@ -495,147 +427,130 @@ export default function App() {
     setIsAuthLoading(true);
     const cleanCode = joinCodeInput.trim().toUpperCase();
 
-    const { data, error } = await supabase
-      .from('couples')
-      .select('*')
-      .eq('space_code', cleanCode)
-      .single();
-
+    const { data, error } = await supabase.from('couples').select('*').eq('space_code', cleanCode).single();
     setIsAuthLoading(false);
 
     if (error || !data) {
-      alert('Space code not found! Please check the code with your partner.');
+      alert('Space code not found! Please check the code.');
       return;
     }
 
-    const loggedInUser = data.user2_name;
-    const otherPartner = data.user1_name;
+    const currentMemberList: Member[] = data.members || [];
+    const roomLimit = data.max_members || 2;
 
+    // Check if device is already registered in this space
+    const storedUserId = localStorage.getItem('dc_user_id');
+    const existingMemberByStoredId = currentMemberList.find((m) => m.id === storedUserId);
+    const savedName = rememberedName || joinNameInput.trim();
+
+    // Check if name is already part of the space member list
+    const existingMemberByName = currentMemberList.find(
+      (m) => m.name.toLowerCase() === savedName.toLowerCase()
+    );
+
+    let activeUserId = storedUserId;
+    let activeUserName = savedName;
+
+    if (existingMemberByStoredId) {
+      // 1. Returning device: Automatic login
+      activeUserId = existingMemberByStoredId.id;
+      activeUserName = existingMemberByStoredId.name;
+    } else if (existingMemberByName) {
+      // 2. Recognized member by name: Reconnect
+      activeUserId = existingMemberByName.id;
+      activeUserName = existingMemberByName.name;
+    } else {
+      // 3. New member joining: check capacity and name requirement
+      if (!savedName) {
+        alert('Please enter your name to join this space for the first time!');
+        return;
+      }
+
+      if (currentMemberList.length >= roomLimit) {
+        alert(`This space is full! Maximum limit is ${roomLimit} people.`);
+        return;
+      }
+
+      activeUserId = 'usr_' + Date.now();
+      activeUserName = savedName;
+      const updatedMemberList = [...currentMemberList, { id: activeUserId, name: activeUserName, updated_at: new Date().toISOString() }];
+
+      await supabase.from('couples').update({ members: updatedMemberList }).eq('id', data.id);
+      setMembers(updatedMemberList);
+    }
+
+    // Save login credentials to local storage
     localStorage.setItem('dc_couple_id', data.id);
     localStorage.setItem('dc_space_code', data.space_code);
-    localStorage.setItem('dc_current_user', loggedInUser);
-    localStorage.setItem('dc_partner_name', otherPartner);
-    localStorage.setItem('dc_is_creator', 'false');
+    localStorage.setItem('dc_user_id', activeUserId || '');
+    localStorage.setItem('dc_user_name', activeUserName);
+    localStorage.setItem('dc_remembered_name', activeUserName);
 
     setCoupleId(data.id);
     setSpaceCode(data.space_code);
-    setCurrentUser(loggedInUser);
-    setPartnerName(otherPartner);
-    setIsCreator(false);
+    setCurrentUserId(activeUserId || '');
+    setCurrentUserName(activeUserName);
+    setMaxCapacity(roomLimit);
+    if (!existingMemberByStoredId && !existingMemberByName) {
+      // fresh update
+      setMembers(data.members || []);
+    } else {
+      setMembers(currentMemberList);
+    }
   };
 
   const handleLogout = () => {
+    // Keeps dc_remembered_name so user doesn't need to retype name on next space join
+    const savedName = localStorage.getItem('dc_remembered_name');
     localStorage.clear();
+    if (savedName) localStorage.setItem('dc_remembered_name', savedName);
+
     setCoupleId(null);
     setSpaceCode(null);
+    setCurrentUserId('');
+    setCurrentUserName('');
+    setMembers([]);
     setPlans([]);
     setBucketList([]);
-    setUserCoords(null);
-    setPartnerCoords(null);
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-    }
+    if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
   };
 
   const handleModalPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !e.target.files[0]) return;
-    const file = e.target.files[0];
-
     setIsUploadingPhoto(true);
-    const permanentUrl = await uploadToSupabaseStorage(file);
+    const permanentUrl = await uploadToSupabaseStorage(e.target.files[0]);
     setIsUploadingPhoto(false);
-
-    if (permanentUrl) {
-      setNewOutfitPhotos((prev) => ({
-        ...prev,
-        [selectedOutfitType]: permanentUrl,
-      }));
-    }
-  };
-
-  const handleAddModalTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!taskInput.trim()) return;
-    setModalTasks([...modalTasks, taskInput.trim()]);
-    setTaskInput('');
-  };
-
-  const handleRemoveModalTask = (index: number) => {
-    setModalTasks(modalTasks.filter((_, i) => i !== index));
-  };
-
-  const handleOpenCreateModal = () => {
-    const defaultCoords = userCoords || [14.5995, 120.9842];
-    setPinnedCoords(defaultCoords);
-    setMapCenterTarget(defaultCoords);
-    setNewTitle('');
-    setNewDate(new Date().toISOString().split('T')[0]);
-    setNewLocName('');
-    setSearchQuery('');
-    setNewOutfitPhotos({});
-    setModalTasks(['Visit Church & Pray together', 'Try cute cafe / coffee date']);
-    setIsModalOpen(true);
+    if (permanentUrl) setNewOutfitPhotos((prev) => ({ ...prev, [selectedOutfitType]: permanentUrl }));
   };
 
   const handleCreateDate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim() || !newDate || !coupleId) {
-      alert('Please provide a Date Title and Date!');
-      return;
-    }
+    if (!newTitle.trim() || !newDate || !coupleId) return;
 
-    const formattedTasks = modalTasks.map((t, idx) => ({
-      id: Date.now() + idx,
-      text: t,
-      done: false,
-    }));
+    const formattedTasks = modalTasks.map((t, idx) => ({ id: Date.now() + idx, text: t, done: false }));
+    const coords = pinnedCoords || [14.5995, 120.9842];
 
-    const coordsToSave = pinnedCoords || [14.5995, 120.9842];
+    const { data } = await supabase.from('date_plans').insert([{
+      couple_id: coupleId,
+      title: newTitle.trim(),
+      date: newDate,
+      vibe: newVibe,
+      location_name: newLocName.trim() || 'Pinned Destination',
+      lat: coords[0],
+      lng: coords[1],
+      dress_code: selectedOutfitType,
+      outfit_photos: newOutfitPhotos,
+      completed: false,
+      tasks: formattedTasks,
+      budget_items: [],
+    }]).select().single();
 
-    const { data, error } = await supabase.from('date_plans').insert([
-      {
-        couple_id: coupleId,
-        title: newTitle.trim(),
-        date: newDate,
-        vibe: newVibe,
-        location_name: newLocName.trim() || 'Pinned Destination',
-        lat: coordsToSave[0],
-        lng: coordsToSave[1],
-        dress_code: selectedOutfitType,
-        outfit_photos: newOutfitPhotos,
-        completed: false,
-        tasks: formattedTasks,
-        budget_items: [],
-      }
-    ]).select().single();
-
-    if (!error && data) {
-      const newPlanObj: DatePlan = {
-        id: data.id,
-        couple_id: data.couple_id,
-        title: data.title,
-        date: data.date,
-        vibe: data.vibe,
-        locationName: data.location_name,
-        lat: data.lat,
-        lng: data.lng,
-        dressCode: data.dress_code,
-        outfit_photos: data.outfit_photos || {},
-        memory_photo: null,
-        tasks: data.tasks || [],
-        completed: false,
-        rating: 5,
-        budgetItems: [],
-      };
-
-      setPlans((prev) => [...prev, newPlanObj]);
+    if (data) {
+      setPlans((prev) => [...prev, { ...data, completed: false, tasks: formattedTasks, budgetItems: [] }]);
       setSelectedPlanId(data.id);
       setIsModalOpen(false);
-      setActiveTab('planner');
       setNewTitle('');
       setNewLocName('');
-    } else if (error) {
-      alert('Failed to save date. Please try again!');
     }
   };
 
@@ -648,7 +563,6 @@ export default function App() {
     setEditCoords([planToEdit.lat, planToEdit.lng]);
     setEditOutfitType(planToEdit.dressCode);
     setMapCenterTarget([planToEdit.lat, planToEdit.lng]);
-    setSearchQuery('');
     setIsEditModalOpen(true);
   };
 
@@ -659,71 +573,44 @@ export default function App() {
     setPlans((prev) =>
       prev.map((p) =>
         p.id === editPlanId
-          ? {
-            ...p,
-            title: editTitle,
-            date: editDate,
-            vibe: editVibe,
-            locationName: editLocName || 'Pinned Destination',
-            lat: editCoords[0],
-            lng: editCoords[1],
-            dressCode: editOutfitType,
-          }
+          ? { ...p, title: editTitle, date: editDate, vibe: editVibe, locationName: editLocName || 'Pinned Destination', lat: editCoords[0], lng: editCoords[1], dressCode: editOutfitType }
           : p
       )
     );
     setIsEditModalOpen(false);
 
-    await supabase
-      .from('date_plans')
-      .update({
-        title: editTitle,
-        date: editDate,
-        vibe: editVibe,
-        location_name: editLocName || 'Pinned Destination',
-        lat: editCoords[0],
-        lng: editCoords[1],
-        dress_code: editOutfitType,
-      })
-      .eq('id', editPlanId);
+    await supabase.from('date_plans').update({
+      title: editTitle,
+      date: editDate,
+      vibe: editVibe,
+      location_name: editLocName || 'Pinned Destination',
+      lat: editCoords[0],
+      lng: editCoords[1],
+      dress_code: editOutfitType,
+    }).eq('id', editPlanId);
   };
 
-  const handleDeletePlan = async (planIdToDelete?: string) => {
-    const targetId = planIdToDelete || currentPlan?.id;
-    if (!targetId) return;
-
-    const confirmDelete = window.confirm('Are you sure you want to delete this date?');
-    if (!confirmDelete) return;
-
-    setPlans((prev) => prev.filter((p) => p.id !== targetId));
+  const handleDeletePlan = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this date?')) return;
+    setPlans((prev) => prev.filter((p) => p.id !== id));
     setIsEditModalOpen(false);
-
-    await supabase.from('date_plans').delete().eq('id', targetId);
+    await supabase.from('date_plans').delete().eq('id', id);
   };
 
   const handleMemoryPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, planId?: string) => {
     if (!e.target.files || !e.target.files[0]) return;
-    const file = e.target.files[0];
-
     setIsUploadingMemoryPhoto(true);
-    const permanentUrl = await uploadToSupabaseStorage(file);
+    const permanentUrl = await uploadToSupabaseStorage(e.target.files[0]);
     setIsUploadingMemoryPhoto(false);
 
     if (permanentUrl) {
       if (planId) {
-        setPlans((prev) =>
-          prev.map((p) => (p.id === planId ? { ...p, memory_photo: permanentUrl } : p))
-        );
+        setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, memory_photo: permanentUrl } : p)));
         await supabase.from('date_plans').update({ memory_photo: permanentUrl }).eq('id', planId);
       } else {
         setFinishMemoryPhoto(permanentUrl);
       }
     }
-  };
-
-  const handleOpenFinishModal = (planId: string) => {
-    setFinishingPlanTargetId(planId);
-    setIsFinishModalOpen(true);
   };
 
   const handleCompleteDate = async (e: React.FormEvent) => {
@@ -737,13 +624,7 @@ export default function App() {
     setPlans((prev) =>
       prev.map((p) =>
         p.id === targetId
-          ? {
-            ...p,
-            completed: true,
-            rating: finishRating,
-            bestMemory: finishMemory || 'Had an amazing day together! 💕',
-            memory_photo: photoToSave,
-          }
+          ? { ...p, completed: true, rating: finishRating, bestMemory: finishMemory || 'Memorable hangout! ✨', memory_photo: photoToSave }
           : p
       )
     );
@@ -754,149 +635,63 @@ export default function App() {
     setFinishingPlanTargetId(null);
     setActiveTab('history');
 
-    await supabase
-      .from('date_plans')
-      .update({
-        completed: true,
-        rating: finishRating,
-        best_memory: finishMemory || 'Had an amazing day together! 💕',
-        memory_photo: photoToSave,
-      })
-      .eq('id', targetId);
+    await supabase.from('date_plans').update({
+      completed: true,
+      rating: finishRating,
+      best_memory: finishMemory || 'Memorable hangout! ✨',
+      memory_photo: photoToSave,
+    }).eq('id', targetId);
   };
 
   const toggleTask = async (taskId: number) => {
     if (!currentPlan) return;
-    const updatedTasks = currentPlan.tasks.map((t) => (t.id === taskId ? { ...t, done: !t.done } : t));
-
-    setPlans((prev) =>
-      prev.map((p) => (p.id === currentPlan.id ? { ...p, tasks: updatedTasks } : p))
-    );
-
-    await supabase
-      .from('date_plans')
-      .update({ tasks: updatedTasks })
-      .eq('id', currentPlan.id);
+    const updated = currentPlan.tasks.map((t) => (t.id === taskId ? { ...t, done: !t.done } : t));
+    setPlans((prev) => prev.map((p) => (p.id === currentPlan.id ? { ...p, tasks: updated } : p)));
+    await supabase.from('date_plans').update({ tasks: updated }).eq('id', currentPlan.id);
   };
 
   const handleAddInlineTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inlineTaskInput.trim() || !currentPlan) return;
-
-    const newTask = {
-      id: Date.now(),
-      text: inlineTaskInput.trim(),
-      done: false,
-    };
-
-    const updatedTasks = [...currentPlan.tasks, newTask];
+    const updated = [...currentPlan.tasks, { id: Date.now(), text: inlineTaskInput.trim(), done: false }];
     setInlineTaskInput('');
-
-    setPlans((prev) =>
-      prev.map((p) => (p.id === currentPlan.id ? { ...p, tasks: updatedTasks } : p))
-    );
-
-    await supabase
-      .from('date_plans')
-      .update({ tasks: updatedTasks })
-      .eq('id', currentPlan.id);
+    setPlans((prev) => prev.map((p) => (p.id === currentPlan.id ? { ...p, tasks: updated } : p)));
+    await supabase.from('date_plans').update({ tasks: updated }).eq('id', currentPlan.id);
   };
 
   const handleDeleteTask = async (taskId: number) => {
     if (!currentPlan) return;
-    const updatedTasks = currentPlan.tasks.filter((t) => t.id !== taskId);
-
-    setPlans((prev) =>
-      prev.map((p) => (p.id === currentPlan.id ? { ...p, tasks: updatedTasks } : p))
-    );
-
-    await supabase
-      .from('date_plans')
-      .update({ tasks: updatedTasks })
-      .eq('id', currentPlan.id);
+    const updated = currentPlan.tasks.filter((t) => t.id !== taskId);
+    setPlans((prev) => prev.map((p) => (p.id === currentPlan.id ? { ...p, tasks: updated } : p)));
+    await supabase.from('date_plans').update({ tasks: updated }).eq('id', currentPlan.id);
   };
 
-  const handleUploadOutfitPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!currentPlan || !e.target.files || !e.target.files[0]) return;
-    const file = e.target.files[0];
+  const handleAddBudgetItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBudgetItem || !newBudgetCost || !currentPlan) return;
+    const costNum = parseFloat(newBudgetCost);
+    if (isNaN(costNum)) return;
 
-    setIsUploadingPhoto(true);
-    const permanentUrl = await uploadToSupabaseStorage(file);
-    setIsUploadingPhoto(false);
-
-    if (permanentUrl) {
-      const updatedPhotos = {
-        ...(currentPlan.outfit_photos || {}),
-        [currentPlan.dressCode]: permanentUrl,
-      };
-
-      setPlans((prev) =>
-        prev.map((p) => (p.id === currentPlan.id ? { ...p, outfit_photos: updatedPhotos } : p))
-      );
-
-      await supabase
-        .from('date_plans')
-        .update({ outfit_photos: updatedPhotos })
-        .eq('id', currentPlan.id);
-    }
+    const updated = [...(currentPlan.budgetItems || []), { id: Date.now(), item: newBudgetItem, cost: costNum, paidBy: newBudgetPaidBy || currentUserName }];
+    setNewBudgetItem('');
+    setNewBudgetCost('');
+    setPlans((prev) => prev.map((p) => (p.id === currentPlan.id ? { ...p, budgetItems: updated } : p)));
+    await supabase.from('date_plans').update({ budget_items: updated }).eq('id', currentPlan.id);
   };
 
-  const handleDeleteOutfitPhoto = async () => {
+  const handleDeleteBudgetItem = async (itemId: number) => {
     if (!currentPlan) return;
-    const updatedPhotos = { ...(currentPlan.outfit_photos || {}) };
-    delete updatedPhotos[currentPlan.dressCode];
-
-    setPlans((prev) =>
-      prev.map((p) => (p.id === currentPlan.id ? { ...p, outfit_photos: updatedPhotos } : p))
-    );
-
-    await supabase
-      .from('date_plans')
-      .update({ outfit_photos: updatedPhotos })
-      .eq('id', currentPlan.id);
-  };
-
-  const handleSelectOutfitType = async (label: string) => {
-    if (!currentPlan) return;
-    setPlans((prev) =>
-      prev.map((p) => (p.id === currentPlan.id ? { ...p, dressCode: label } : p))
-    );
-
-    await supabase
-      .from('date_plans')
-      .update({ dress_code: label })
-      .eq('id', currentPlan.id);
+    const updated = (currentPlan.budgetItems || []).filter((b) => b.id !== itemId);
+    setPlans((prev) => prev.map((p) => (p.id === currentPlan.id ? { ...p, budgetItems: updated } : p)));
+    await supabase.from('date_plans').update({ budget_items: updated }).eq('id', currentPlan.id);
   };
 
   const handleAddBucketItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBucketTitle.trim() || !coupleId) return;
-
-    const tempId = String(Date.now());
-    const newItem: BucketItem = {
-      id: tempId,
-      couple_id: coupleId,
-      title: newBucketTitle.trim(),
-      vibe: newBucketVibe,
-      notes: newBucketNotes.trim() || 'Excited for this date!',
-    };
-
-    setBucketList((prev) => [newItem, ...prev]);
+    await supabase.from('bucket_items').insert([{ couple_id: coupleId, title: newBucketTitle.trim(), vibe: newBucketVibe, notes: newBucketNotes.trim() }]);
     setNewBucketTitle('');
     setNewBucketNotes('');
-
-    const { data } = await supabase.from('bucket_items').insert([
-      {
-        couple_id: coupleId,
-        title: newItem.title,
-        vibe: newItem.vibe,
-        notes: newItem.notes,
-      }
-    ]).select().single();
-
-    if (data) {
-      setBucketList((prev) => prev.map((item) => (item.id === tempId ? data : item)));
-    }
   };
 
   const handleDeleteBucketItem = async (id: string) => {
@@ -904,74 +699,18 @@ export default function App() {
     await supabase.from('bucket_items').delete().eq('id', id);
   };
 
-  const handleConvertBucketToPlan = (bucket: BucketItem) => {
-    setNewTitle(bucket.title);
-    setNewVibe(bucket.vibe);
-    setNewLocName(bucket.title);
-    handleDeleteBucketItem(bucket.id);
-    setIsModalOpen(true);
-  };
-
-  const handleAddBudgetItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newBudgetItem || !newBudgetCost || !currentPlan) return;
-
-    const costNum = parseFloat(newBudgetCost);
-    if (isNaN(costNum)) return;
-
-    const updated = [
-      ...(currentPlan.budgetItems || []),
-      { id: Date.now(), item: newBudgetItem, cost: costNum, paidBy: newBudgetPaidBy },
-    ];
-
-    setPlans((prev) =>
-      prev.map((p) => (p.id === currentPlan.id ? { ...p, budgetItems: updated } : p))
-    );
-    setNewBudgetItem('');
-    setNewBudgetCost('');
-
-    await supabase
-      .from('date_plans')
-      .update({ budget_items: updated })
-      .eq('id', currentPlan.id);
-  };
-
-  const handleDeleteBudgetItem = async (itemId: number) => {
-    if (!currentPlan) return;
-    const updated = (currentPlan.budgetItems || []).filter((b) => b.id !== itemId);
-
-    setPlans((prev) =>
-      prev.map((p) => (p.id === currentPlan.id ? { ...p, budgetItems: updated } : p))
-    );
-
-    await supabase.from('date_plans').update({ budget_items: updated }).eq('id', currentPlan.id);
-  };
-
-  const handleSearchLocation = async (e: React.FormEvent, isEditMode: boolean = false) => {
+  const handleSearchLocation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
-
     setIsSearching(true);
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`
-      );
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`);
       const data = await response.json();
       if (data && data.length > 0) {
-        const lat = parseFloat(data[0].lat);
-        const lon = parseFloat(data[0].lon);
-        const newPos: [number, number] = [lat, lon];
-
-        if (isEditMode) {
-          setEditCoords(newPos);
-          if (!editLocName) setEditLocName(data[0].display_name.split(',')[0]);
-        } else {
-          setPinnedCoords(newPos);
-          if (!newLocName) setNewLocName(data[0].display_name.split(',')[0]);
-        }
+        const newPos: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+        setPinnedCoords(newPos);
         setMapCenterTarget(newPos);
-      } else {
-        alert('Location not found. Try typing a landmark or city!');
+        if (!newLocName) setNewLocName(data[0].display_name.split(',')[0]);
       }
     } catch {
       alert('Error searching for location.');
@@ -1003,80 +742,45 @@ export default function App() {
 
   const currentBudget = currentPlan?.budgetItems || [];
   const totalCost = currentBudget.reduce((acc, curr) => acc + curr.cost, 0);
-  const myShare = currentBudget.reduce((acc, curr) => {
-    if (curr.paidBy === 'You') return acc + curr.cost;
-    if (curr.paidBy === '50/50') return acc + curr.cost / 2;
-    return acc;
-  }, 0);
-  const partnerShare = totalCost - myShare;
 
-  // Distance between you and partner
-  const coupleDistanceKm = (userCoords && partnerCoords)
-    ? getDistanceKm(userCoords[0], userCoords[1], partnerCoords[0], partnerCoords[1])
+  const otherMember = members.find((m) => m.id !== currentUserId && m.lat && m.lng);
+  const coupleDistanceKm = (userCoords && otherMember && otherMember.lat && otherMember.lng)
+    ? getDistanceKm(userCoords[0], userCoords[1], otherMember.lat, otherMember.lng)
     : null;
 
-  // LOGIN SCREEN
+  // LOGIN SCREEN (SMART RETURNING USER IDENTIFICATION)
   if (!coupleId) {
     return (
       <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white rounded-3xl p-8 border border-stone-200 shadow-xl">
+        <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 border border-stone-200 shadow-xl">
           <div className="text-center mb-6">
             <div className="inline-flex p-3 bg-rose-500 rounded-full text-white mb-3 shadow-md">
               <Heart size={28} fill="currentColor" />
             </div>
             <h1 className="text-2xl font-bold text-stone-900 tracking-tight">DateCraft</h1>
-            <p className="text-xs text-stone-500 mt-1">Real-time couple planner with synced spaces & live GPS</p>
+            <p className="text-xs text-stone-500 mt-1">Real-time couple & group date planner (Customizable up to 8)</p>
           </div>
 
           <div className="flex bg-stone-100 p-1 rounded-2xl mb-6">
-            <button
-              type="button"
-              onClick={() => setAuthMode('join')}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${authMode === 'join' ? 'bg-white shadow-xs text-stone-900' : 'text-stone-500'
-                }`}
-            >
-              Join Partner's Code
-            </button>
             <button
               type="button"
               onClick={() => setAuthMode('create')}
               className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${authMode === 'create' ? 'bg-white shadow-xs text-stone-900' : 'text-stone-500'
                 }`}
             >
-              Create Couple Space
+              Create Room
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthMode('join')}
+              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${authMode === 'join' ? 'bg-white shadow-xs text-stone-900' : 'text-stone-500'
+                }`}
+            >
+              Join Room
             </button>
           </div>
 
-          {authMode === 'join' ? (
-            <form onSubmit={handleJoinSpace} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1.5">Couple Space Code</label>
-                <div className="relative">
-                  <KeyRound size={16} className="absolute left-3.5 top-3 text-stone-400" />
-                  <input
-                    type="text"
-                    placeholder="e.g. LOVE-1964"
-                    value={joinCodeInput}
-                    onChange={(e) => setJoinCodeInput(e.target.value)}
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-300 text-sm font-mono uppercase tracking-wider text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
-                    required
-                    autoFocus
-                  />
-                </div>
-                <p className="text-[11px] text-stone-400 mt-1.5">
-                  Paste the code from your partner. Names and live locations will sync automatically!
-                </p>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isAuthLoading}
-                className="w-full mt-2 py-3 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {isAuthLoading ? 'Connecting...' : 'Connect to Our Space'}
-              </button>
-            </form>
-          ) : (
+          {authMode === 'create' ? (
             <form onSubmit={handleCreateSpace} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1.5">Your Name</label>
@@ -1085,8 +789,8 @@ export default function App() {
                   <input
                     type="text"
                     placeholder="e.g. Benidick"
-                    value={yourNameInput}
-                    onChange={(e) => setYourNameInput(e.target.value)}
+                    value={createNameInput}
+                    onChange={(e) => setCreateNameInput(e.target.value)}
                     className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
                     required
                   />
@@ -1094,18 +798,44 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1.5">Partner's Name</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-stone-700">Custom Space Code</label>
+                  <button
+                    type="button"
+                    onClick={generateRandomCode}
+                    className="text-[11px] text-rose-600 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <Wand2 size={11} /> Auto-generate
+                  </button>
+                </div>
                 <div className="relative">
-                  <Heart size={16} className="absolute left-3.5 top-3 text-rose-400" />
+                  <KeyRound size={16} className="absolute left-3.5 top-3 text-stone-400" />
                   <input
                     type="text"
-                    placeholder="e.g. Loraine"
-                    value={partnerNameInput}
-                    onChange={(e) => setPartnerNameInput(e.target.value)}
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
-                    required
+                    placeholder="e.g. BEN-LOR-2026 (or leave empty)"
+                    value={customCodeInput}
+                    onChange={(e) => setCustomCodeInput(e.target.value)}
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-300 text-sm font-mono uppercase tracking-wider text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
                   />
                 </div>
+                <p className="text-[10px] text-stone-400 mt-1">
+                  Type your preferred secret code or click auto-generate.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1.5">Max Room Capacity</label>
+                <select
+                  value={maxMembersInput}
+                  onChange={(e) => setMaxMembersInput(Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 text-sm font-semibold text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer"
+                >
+                  {[2, 3, 4, 5, 6, 7, 8].map((num) => (
+                    <option key={num} value={num}>
+                      {num} People {num === 2 ? '(Couples only)' : num === 4 ? '(Double Date)' : '(Group Hangout)'}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <button
@@ -1113,7 +843,73 @@ export default function App() {
                 disabled={isAuthLoading}
                 className="w-full mt-2 py-3 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                {isAuthLoading ? 'Creating Couple Space...' : 'Create Space & Generate Code'}
+                {isAuthLoading ? 'Creating Room...' : 'Create Space with Code'}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleJoinSpace} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1.5">Space Code</label>
+                <div className="relative">
+                  <KeyRound size={16} className="absolute left-3.5 top-3 text-stone-400" />
+                  <input
+                    type="text"
+                    placeholder="e.g. BEN-LOR-2026"
+                    value={joinCodeInput}
+                    onChange={(e) => setJoinCodeInput(e.target.value)}
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-300 text-sm font-mono uppercase tracking-wider text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                    required
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              {/* AUTOMATIC RETURNING USER IDENTIFICATION */}
+              {rememberedName ? (
+                <div className="p-3 bg-rose-50/70 border border-rose-100 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <User size={15} className="text-rose-500" />
+                    <span className="text-xs text-stone-700">
+                      Joining as <strong className="text-stone-900">{rememberedName}</strong>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.removeItem('dc_remembered_name');
+                      setJoinNameInput('');
+                    }}
+                    className="text-[11px] text-rose-600 hover:underline font-semibold"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-stone-700 mb-1.5">Your Name</label>
+                  <div className="relative">
+                    <User size={16} className="absolute left-3.5 top-3 text-stone-400" />
+                    <input
+                      type="text"
+                      placeholder="e.g. Loraine"
+                      value={joinNameInput}
+                      onChange={(e) => setJoinNameInput(e.target.value)}
+                      className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                      required
+                    />
+                  </div>
+                  <p className="text-[11px] text-stone-400 mt-1.5">
+                    First time joining? Just enter your name once!
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isAuthLoading}
+                className="w-full mt-2 py-3 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isAuthLoading ? 'Connecting...' : 'Connect to Space'}
               </button>
             </form>
           )}
@@ -1123,55 +919,66 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] text-stone-800 p-4 md:p-8">
+    <div className="min-h-screen bg-[#FDFBF7] text-stone-800 p-3.5 sm:p-6 md:p-8">
       {/* Navbar */}
-      <header className="max-w-5xl mx-auto flex items-center justify-between pb-6 border-b border-stone-200">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-rose-500 rounded-full text-white">
-            <Heart size={20} fill="currentColor" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight">DateCraft</h1>
-              <span className="text-xs bg-rose-50 text-rose-600 font-medium px-2.5 py-0.5 rounded-full border border-rose-100 flex items-center gap-1">
-                <Users size={12} /> {currentUser} & {partnerName}
-              </span>
+      <header className="max-w-5xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between pb-4 sm:pb-6 border-b border-stone-200 gap-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-rose-500 rounded-full text-white flex-shrink-0">
+              <Heart size={18} fill="currentColor" />
             </div>
-            <div className="flex items-center gap-2 text-xs text-stone-500 mt-0.5">
-              <span>Space Code: <strong className="font-mono text-stone-800">{spaceCode}</strong></span>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(spaceCode || '');
-                  alert(`Copied Space Code: ${spaceCode}`);
-                }}
-                className="hover:text-rose-500 cursor-pointer"
-                title="Copy code to share with partner"
-              >
-                <Copy size={12} />
-              </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-bold tracking-tight">DateCraft</h1>
+                <span className="text-[11px] bg-rose-50 text-rose-600 font-semibold px-2.5 py-0.5 rounded-full border border-rose-100 flex items-center gap-1">
+                  <Users size={11} /> {members.length}/{maxCapacity} Members
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mt-0.5">
+                <span>Code: <strong className="font-mono text-stone-800">{spaceCode}</strong></span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(spaceCode || '');
+                    alert(`Copied Space Code: ${spaceCode}`);
+                  }}
+                  className="hover:text-rose-500 p-0.5 cursor-pointer"
+                  title="Copy code"
+                >
+                  <Copy size={11} />
+                </button>
+              </div>
             </div>
           </div>
+
+          <button
+            onClick={handleLogout}
+            className="sm:hidden p-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-full transition-colors cursor-pointer"
+            title="Log out"
+          >
+            <LogOut size={15} />
+          </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2 self-stretch sm:self-auto">
           <button
             onClick={startLiveTracking}
-            className="flex items-center gap-1.5 bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 px-3.5 py-2 rounded-full font-medium text-xs shadow-sm cursor-pointer"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 px-3 py-2 rounded-xl sm:rounded-full font-medium text-xs shadow-2xs cursor-pointer"
           >
-            <Navigation size={14} className={isLocating ? 'animate-spin text-blue-500' : 'text-blue-600'} />
-            {isLocating ? 'Locating...' : 'My Live GPS'}
+            <Navigation size={13} className={isLocating ? 'animate-spin text-blue-500' : 'text-blue-600'} />
+            {isLocating ? 'Locating...' : 'My GPS'}
           </button>
 
           <button
-            onClick={handleOpenCreateModal}
-            className="flex items-center gap-1.5 bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-full font-medium text-xs shadow-sm cursor-pointer"
+            onClick={() => setIsModalOpen(true)}
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-xl sm:rounded-full font-medium text-xs shadow-sm cursor-pointer whitespace-nowrap"
           >
-            <Plus size={16} /> Plan a new date
+            <Plus size={15} /> Plan date
           </button>
 
           <button
             onClick={handleLogout}
-            className="p-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-full transition-colors cursor-pointer"
+            className="hidden sm:block p-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-full transition-colors cursor-pointer"
             title="Log out"
           >
             <LogOut size={16} />
@@ -1179,46 +986,61 @@ export default function App() {
         </div>
       </header>
 
-      {/* Navigation Tabs with Dynamic Correct Counts */}
-      <div className="max-w-5xl mx-auto mt-4 flex items-center gap-2 border-b border-stone-200 pb-2 overflow-x-auto">
+      {/* Connected Members Badges */}
+      <div className="max-w-5xl mx-auto mt-2 flex items-center gap-1.5 overflow-x-auto py-1">
+        <span className="text-[11px] text-stone-400 font-semibold mr-1">In this space:</span>
+        {members.map((m, idx) => (
+          <span
+            key={m.id}
+            className="px-2.5 py-0.5 rounded-full text-[11px] font-bold border flex items-center gap-1 shadow-2xs"
+            style={{ borderColor: memberColors[idx % memberColors.length], color: memberColors[idx % memberColors.length], backgroundColor: '#fff' }}
+          >
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: memberColors[idx % memberColors.length] }}></span>
+            {m.name} {m.id === currentUserId ? '(You)' : ''}
+          </span>
+        ))}
+      </div>
+
+      {/* Navigation Tabs */}
+      <div className="max-w-5xl mx-auto mt-3 flex items-center gap-2 border-b border-stone-200 pb-2.5 overflow-x-auto no-scrollbar">
         <button
           onClick={() => setActiveTab('planner')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'planner'
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'planner'
             ? 'bg-rose-500 text-white shadow-xs'
             : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
-          <Calendar size={14} /> Active Dates ({upcomingPlans.length})
+          <Calendar size={13} /> Active ({upcomingPlans.length})
         </button>
 
         <button
           onClick={() => setActiveTab('history')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'history'
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'history'
             ? 'bg-rose-500 text-white shadow-xs'
             : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
-          <History size={14} /> Date Archive & Memories ({historyPlans.length})
+          <History size={13} /> Memories ({historyPlans.length})
         </button>
 
         <button
           onClick={() => setActiveTab('bucket')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'bucket'
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'bucket'
             ? 'bg-rose-500 text-white shadow-xs'
             : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
-          <BookmarkPlus size={14} /> Bucket List ({bucketList.length})
+          <BookmarkPlus size={13} /> Wishlist ({bucketList.length})
         </button>
 
         <button
           onClick={() => setActiveTab('budget')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'budget'
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${activeTab === 'budget'
             ? 'bg-rose-500 text-white shadow-xs'
             : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
-          <DollarSign size={14} /> Budget & Bill Splitter
+          <DollarSign size={13} /> Bill Splitter
         </button>
       </div>
 
@@ -1226,44 +1048,40 @@ export default function App() {
       {activeTab === 'planner' && (
         <>
           {upcomingPlans.length === 0 ? (
-            <div className="max-w-xl mx-auto my-16 bg-white rounded-3xl p-10 text-center border border-stone-200 shadow-sm">
+            <div className="max-w-xl mx-auto my-12 bg-white rounded-3xl p-8 sm:p-10 text-center border border-stone-200 shadow-sm">
               <div className="inline-flex p-4 bg-rose-50 rounded-full text-rose-500 mb-4">
                 <Calendar size={32} />
               </div>
-              <h2 className="text-lg font-bold text-stone-900">No active date planned right now!</h2>
-              <p className="text-xs text-stone-500 mt-1 mb-6">
+              <h2 className="text-base sm:text-lg font-bold text-stone-900">No active date planned right now!</h2>
+              <p className="text-xs text-stone-500 mt-1 mb-5">
                 You have finished all planned dates! Start by planning a new date together.
               </p>
               <button
-                onClick={handleOpenCreateModal}
-                className="px-6 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl text-xs font-bold shadow-md inline-flex items-center gap-2 cursor-pointer"
+                onClick={() => setIsModalOpen(true)}
+                className="px-6 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl text-xs font-bold shadow-md inline-flex items-center gap-2 cursor-pointer"
               >
-                <Plus size={16} /> Plan a New Date
+                <Plus size={15} /> Plan a New Date
               </button>
             </div>
           ) : (
-            <div className="max-w-5xl mx-auto mt-6 space-y-6">
+            <div className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-4 sm:space-y-6">
               {upcomingPlans.length > 1 && (
-                <div className="bg-white p-4 rounded-3xl border border-stone-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div>
-                    <span className="text-xs font-bold text-stone-800">Your Active Dates ({upcomingPlans.length}):</span>
-                    <p className="text-[11px] text-stone-400">Click any date to switch and view its details</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
+                <div className="bg-white p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-stone-200 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                  <span className="text-xs font-bold text-stone-800">Switch Active Date:</span>
+                  <div className="flex flex-wrap gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
                     {upcomingPlans.map((plan) => {
                       const isSelected = (currentPlan?.id === plan.id);
                       return (
                         <button
                           key={plan.id}
                           onClick={() => setSelectedPlanId(plan.id)}
-                          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${isSelected
+                          className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${isSelected
                             ? 'bg-rose-500 text-white shadow-xs'
                             : 'bg-stone-50 text-stone-600 border border-stone-200 hover:bg-stone-100'
                             }`}
                         >
-                          <Calendar size={12} />
+                          <Calendar size={11} />
                           <span>{plan.title}</span>
-                          <span className="text-[10px] opacity-80">({plan.date})</span>
                         </button>
                       );
                     })}
@@ -1271,74 +1089,75 @@ export default function App() {
                 </div>
               )}
 
-              <main className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="space-y-6">
+              <main className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+                <div className="space-y-4 sm:space-y-6">
                   {currentPlan && (
                     <>
+                      {/* Main Date Card */}
                       <div
                         onClick={() => handleOpenEditModal(currentPlan)}
-                        className="bg-white p-5 rounded-3xl border border-stone-200 shadow-sm hover:border-rose-300 hover:shadow-md transition-all cursor-pointer group relative"
+                        className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200 shadow-sm hover:border-rose-300 hover:shadow-md transition-all cursor-pointer group relative"
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="inline-block bg-rose-100 text-rose-700 text-xs px-3 py-1 rounded-full font-semibold">
+                          <span className="inline-block bg-rose-100 text-rose-700 text-[11px] px-2.5 py-0.5 rounded-full font-semibold">
                             {currentPlan.vibe}
                           </span>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeletePlan(currentPlan.id);
                               }}
-                              className="text-stone-400 hover:text-rose-600 p-1 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
-                              title="Delete this date plan"
+                              className="text-stone-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="Delete this date"
                             >
                               <Trash2 size={14} />
                             </button>
                             <span className="flex items-center gap-1 text-xs font-semibold text-stone-400 group-hover:text-rose-500 transition-colors">
-                              <Pencil size={13} />
+                              <Pencil size={12} />
                               <span>Edit</span>
                             </span>
                           </div>
                         </div>
 
-                        <h2 className="text-2xl font-bold text-stone-900 group-hover:text-rose-600 transition-colors">
+                        <h2 className="text-xl sm:text-2xl font-bold text-stone-900 group-hover:text-rose-600 transition-colors">
                           {currentPlan.title}
                         </h2>
 
-                        <div className="flex items-center justify-between text-sm text-stone-600 mt-2">
-                          <div className="flex items-center gap-2">
-                            <Calendar size={15} className="text-rose-500" />
+                        <div className="flex items-center justify-between text-xs text-stone-600 mt-2">
+                          <div className="flex items-center gap-1.5">
+                            <Calendar size={14} className="text-rose-500" />
                             <span>{currentPlan.date}</span>
                           </div>
-                          <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                            <Clock size={12} />
+                          <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                            <Clock size={11} />
                             {calculateDaysUntil(currentPlan.date)}
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-2 text-sm text-stone-600 mt-1">
-                          <MapPin size={15} className="text-rose-500" />
-                          <span>{currentPlan.locationName}</span>
+                        <div className="flex items-center gap-1.5 text-xs text-stone-600 mt-1">
+                          <MapPin size={14} className="text-rose-500 flex-shrink-0" />
+                          <span className="truncate">{currentPlan.locationName}</span>
                         </div>
 
-                        <div className="mt-4 p-2.5 bg-stone-50 rounded-2xl border border-stone-100 flex items-center gap-3">
+                        <div className="mt-3.5 p-2 bg-stone-50 rounded-2xl border border-stone-100 flex items-center gap-2.5">
                           <img
                             src={activeOutfitImage}
                             alt={currentPlan.dressCode}
-                            className="w-14 h-14 rounded-xl object-cover border border-stone-200 flex-shrink-0 shadow-2xs"
+                            className="w-12 h-12 rounded-xl object-cover border border-stone-200 flex-shrink-0 shadow-2xs"
                           />
                           <div className="min-w-0 flex-1">
-                            <p className="text-[10px] uppercase tracking-wider font-semibold text-stone-400">Chosen Outfit For Date</p>
+                            <p className="text-[9px] uppercase tracking-wider font-semibold text-stone-400">Chosen Outfit</p>
                             <p className="text-xs font-bold text-stone-800 truncate">{currentPlan.dressCode}</p>
-                            <p className="text-[11px] text-stone-500 truncate">{activeOutfitPreset.desc}</p>
+                            <p className="text-[10px] text-stone-500 truncate">{activeOutfitPreset.desc}</p>
                           </div>
-                          <span className="p-1.5 bg-white rounded-full text-rose-500 shadow-2xs">
-                            <Sparkles size={14} />
+                          <span className="p-1 bg-white rounded-full text-rose-500 shadow-2xs mr-1">
+                            <Sparkles size={12} />
                           </span>
                         </div>
 
-                        <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between">
+                        <div className="mt-3.5 pt-3 border-t border-stone-100 flex items-center justify-between">
                           <a
                             href={`https://www.google.com/maps/dir/?api=1&destination=${currentPlan.lat},${currentPlan.lng}`}
                             target="_blank"
@@ -1346,116 +1165,71 @@ export default function App() {
                             onClick={(e) => e.stopPropagation()}
                             className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:underline"
                           >
-                            Get Directions <ExternalLink size={12} />
+                            Directions <ExternalLink size={11} />
                           </a>
 
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeletePlan(currentPlan.id);
-                              }}
-                              className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-colors cursor-pointer"
-                              title="Delete Date Plan"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenFinishModal(currentPlan.id);
-                              }}
-                              className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-full text-xs font-semibold transition-all flex items-center gap-1 shadow-xs cursor-pointer"
-                            >
-                              <CheckCircle2 size={14} /> Mark as Done
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFinishingPlanTargetId(currentPlan.id);
+                              setIsFinishModalOpen(true);
+                            }}
+                            className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-full text-xs font-semibold transition-all flex items-center gap-1 shadow-xs cursor-pointer"
+                          >
+                            <CheckCircle2 size={13} /> Mark Done
+                          </button>
                         </div>
                       </div>
 
-                      {/* OUTFIT GALLERY */}
-                      <div className="bg-white p-5 rounded-3xl border border-stone-200 shadow-sm space-y-4">
+                      {/* Outfit Gallery */}
+                      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200 shadow-sm space-y-3 sm:space-y-4">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <Shirt size={18} className="text-rose-500" />
-                            <h3 className="font-bold text-sm text-stone-900">Outfit Inspiration</h3>
+                            <Shirt size={16} className="text-rose-500" />
+                            <h3 className="font-bold text-xs sm:text-sm text-stone-900">Outfit Inspiration</h3>
                           </div>
-                          <span className="text-[11px] font-semibold text-rose-600 bg-rose-50 border border-rose-100 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                            <Sparkles size={11} />
+                          <span className="text-[10px] sm:text-[11px] font-semibold text-rose-600 bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <Sparkles size={10} />
                             {currentPlan.dressCode}
                           </span>
                         </div>
 
-                        <div className="relative overflow-hidden rounded-2xl border border-stone-200 aspect-[4/3] bg-stone-100 group shadow-inner">
+                        <div className="relative overflow-hidden rounded-2xl border border-stone-200 aspect-[16/10] bg-stone-100 group shadow-inner">
                           <img
                             src={activeOutfitImage}
                             alt={currentPlan.dressCode}
                             className="w-full h-full object-cover transition-all duration-300"
                           />
 
-                          <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
+                          <div className="absolute top-2 right-2 flex items-center gap-1">
                             <label
                               className="p-2 bg-black/60 hover:bg-stone-900 text-white rounded-full transition-colors backdrop-blur-xs shadow cursor-pointer flex items-center justify-center"
-                              title="Upload custom outfit photo permanently"
+                              title="Upload outfit photo"
                             >
-                              {isUploadingPhoto ? (
-                                <Loader2 size={15} className="animate-spin text-rose-400" />
-                              ) : (
-                                <Camera size={15} />
-                              )}
-                              <input
-                                type="file"
-                                accept="image/*"
-                                disabled={isUploadingPhoto}
-                                onChange={handleUploadOutfitPhoto}
-                                className="hidden"
-                              />
+                              {isUploadingPhoto ? <Loader2 size={13} className="animate-spin text-rose-400" /> : <Camera size={13} />}
+                              <input type="file" accept="image/*" disabled={isUploadingPhoto} onChange={handleModalPhotoUpload} className="hidden" />
                             </label>
-
-                            {currentPlan.outfit_photos?.[currentPlan.dressCode] && (
-                              <button
-                                type="button"
-                                onClick={handleDeleteOutfitPhoto}
-                                className="p-2 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors backdrop-blur-xs shadow cursor-pointer"
-                                title="Revert to preset photo"
-                              >
-                                <Trash2 size={15} />
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded-xl text-white text-[10px] font-medium flex items-center gap-1">
-                            <Camera size={11} />
-                            {currentPlan.outfit_photos?.[currentPlan.dressCode]
-                              ? 'Permanent cloud photo'
-                              : 'Preset Style'}
                           </div>
                         </div>
 
                         <div>
-                          <p className="text-[11px] font-bold text-stone-400 mb-2 uppercase tracking-wider">
-                            Switch Outfit Vibe
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
+                          <p className="text-[10px] font-bold text-stone-400 mb-1.5 uppercase tracking-wider">Choose Vibe</p>
+                          <div className="flex flex-wrap gap-1">
                             {outfitPresets.map((preset) => {
                               const isSelected = currentPlan.dressCode === preset.label;
                               return (
                                 <button
                                   key={preset.id}
                                   type="button"
-                                  onClick={() => handleSelectOutfitType(preset.label)}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all flex items-center gap-1.5 cursor-pointer ${isSelected
-                                    ? 'bg-rose-500 text-white border-rose-500 shadow-xs font-semibold'
-                                    : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                                  onClick={() => {
+                                    setPlans((prev) => prev.map((p) => p.id === currentPlan.id ? { ...p, dressCode: preset.label } : p));
+                                    supabase.from('date_plans').update({ dress_code: preset.label }).eq('id', currentPlan.id);
+                                  }}
+                                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all flex items-center gap-1 cursor-pointer ${isSelected ? 'bg-rose-500 text-white border-rose-500 shadow-2xs font-semibold' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
                                     }`}
                                 >
-                                  <span
-                                    className="w-2 h-2 rounded-full"
-                                    style={{ backgroundColor: preset.palette[1] }}
-                                  />
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: preset.palette[1] }} />
                                   {preset.label}
                                 </button>
                               );
@@ -1464,127 +1238,97 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* ITINERARY & PREP CHECKLIST */}
-                      <div className="bg-white p-5 rounded-3xl border border-stone-200 shadow-sm space-y-3">
+                      {/* Checklist */}
+                      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200 shadow-sm space-y-2.5 sm:space-y-3">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <CheckSquare size={18} className="text-rose-500" />
-                            <h3 className="font-bold text-sm">Where To Go & Checklist</h3>
+                          <div className="flex items-center gap-1.5">
+                            <CheckSquare size={16} className="text-rose-500" />
+                            <h3 className="font-bold text-xs sm:text-sm">Where To Go & Checklist</h3>
                           </div>
-                          <span className="text-[11px] text-stone-400 font-semibold">
+                          <span className="text-[10px] text-stone-400 font-semibold">
                             {currentPlan.tasks.filter((t) => t.done).length}/{currentPlan.tasks.length} Done
                           </span>
                         </div>
 
-                        <div className="space-y-2">
-                          {currentPlan.tasks.length === 0 ? (
-                            <p className="text-xs text-stone-400 italic">No checklist items yet. Add one below!</p>
-                          ) : (
-                            currentPlan.tasks.map((task) => (
-                              <div key={task.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-stone-50 group">
-                                <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer flex-1 min-w-0">
-                                  <input
-                                    type="checkbox"
-                                    checked={task.done}
-                                    onChange={() => toggleTask(task.id)}
-                                    className="accent-rose-500 rounded w-4 h-4 cursor-pointer"
-                                  />
-                                  <span className={`truncate ${task.done ? 'line-through text-stone-400 font-medium' : 'font-semibold text-stone-800'}`}>
-                                    {task.text}
-                                  </span>
-                                </label>
-                                <button
-                                  onClick={() => handleDeleteTask(task.id)}
-                                  className="text-stone-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 p-1 transition-opacity cursor-pointer"
-                                  title="Delete task"
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              </div>
-                            ))
-                          )}
+                        <div className="space-y-1.5">
+                          {currentPlan.tasks.map((task) => (
+                            <div key={task.id} className="flex items-center justify-between p-1.5 rounded-xl hover:bg-stone-50 group">
+                              <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer flex-1 min-w-0">
+                                <input type="checkbox" checked={task.done} onChange={() => toggleTask(task.id)} className="accent-rose-500 rounded w-4 h-4 cursor-pointer" />
+                                <span className={`truncate text-xs ${task.done ? 'line-through text-stone-400' : 'font-medium text-stone-800'}`}>{task.text}</span>
+                              </label>
+                              <button onClick={() => handleDeleteTask(task.id)} className="text-stone-300 hover:text-rose-500 p-1 cursor-pointer">
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          ))}
                         </div>
 
-                        <form onSubmit={handleAddInlineTask} className="flex gap-2 pt-2 border-t border-stone-100">
+                        <form onSubmit={handleAddInlineTask} className="flex gap-1.5 pt-1.5 border-t border-stone-100">
                           <input
                             type="text"
-                            placeholder="e.g. Visit Church, Cafe, Arcades..."
+                            placeholder="e.g. Visit Church, Cafe, Arcade..."
                             value={inlineTaskInput}
                             onChange={(e) => setInlineTaskInput(e.target.value)}
                             className="flex-1 px-3 py-1.5 rounded-xl border border-stone-200 text-xs focus:ring-2 focus:ring-rose-400"
                           />
-                          <button
-                            type="submit"
-                            className="px-3 py-1.5 bg-stone-900 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer"
-                          >
-                            Add
-                          </button>
+                          <button type="submit" className="px-3.5 py-1.5 bg-stone-900 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold cursor-pointer">Add</button>
                         </form>
                       </div>
                     </>
                   )}
                 </div>
 
-                {/* Right Column: Weather, Roulette, Live GPS Map */}
+                {/* Right Column: Weather, Roulette, Multi-User GPS Map */}
                 {currentPlan && (
-                  <div className="md:col-span-2 space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="bg-white p-4 rounded-3xl border border-stone-200 shadow-sm flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="p-3 bg-amber-50 text-amber-500 rounded-2xl">
-                            <CloudSun size={24} />
-                          </div>
-                          <div>
-                            <p className="text-[11px] uppercase tracking-wider font-semibold text-stone-400">Destination Weather</p>
-                            <p className="text-base font-bold text-stone-800">
-                              {isWeatherLoading ? 'Checking...' : weatherInfo ? `${weatherInfo.temp}°C • Pleasant` : '28°C • Clear Sky'}
-                            </p>
-                            <p className="text-[11px] text-stone-500">Perfect for {currentPlan.dressCode}</p>
-                          </div>
+                  <div className="md:col-span-2 space-y-3.5 sm:space-y-4">
+                    <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
+                      <div className="bg-white p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-stone-200 shadow-sm flex items-center gap-2 sm:gap-3">
+                        <div className="p-2 sm:p-2.5 bg-amber-50 text-amber-500 rounded-xl sm:rounded-2xl flex-shrink-0">
+                          <CloudSun size={20} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[9px] uppercase tracking-wider font-semibold text-stone-400 truncate">Weather</p>
+                          <p className="text-xs sm:text-sm font-bold text-stone-800 truncate">
+                            {isWeatherLoading ? '...' : weatherInfo ? `${weatherInfo.temp}°C • Pleasant` : '28°C'}
+                          </p>
                         </div>
                       </div>
 
-                      <div className="bg-white p-4 rounded-3xl border border-stone-200 shadow-sm flex items-center justify-between">
-                        <div className="min-w-0 pr-2">
-                          <p className="text-[11px] uppercase tracking-wider font-semibold text-stone-400">Can't Decide What To Do?</p>
-                          <p className="text-xs font-bold text-stone-800 truncate mt-0.5">
-                            {pickedIdea || 'Spin for a spontaneous idea!'}
-                          </p>
+                      <div className="bg-white p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-stone-200 shadow-sm flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[9px] uppercase tracking-wider font-semibold text-stone-400 truncate">Date Roulette</p>
+                          <p className="text-xs font-bold text-stone-800 truncate">{pickedIdea || 'Spin for idea!'}</p>
                         </div>
                         <button
                           type="button"
                           onClick={spinRoulette}
                           disabled={isSpinning}
-                          className="px-3 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-2xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-transform active:scale-95 flex-shrink-0 cursor-pointer"
+                          className="px-2.5 py-1.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1 shadow-2xs cursor-pointer flex-shrink-0"
                         >
-                          <Dices size={15} className={isSpinning ? 'animate-spin' : ''} />
-                          {isSpinning ? 'Spinning...' : 'Spin'}
+                          <Dices size={13} className={isSpinning ? 'animate-spin' : ''} />
                         </button>
                       </div>
                     </div>
 
-                    <div className="bg-white p-4 rounded-3xl border border-stone-200 shadow-sm flex flex-col h-[490px]">
-                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-2">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-sm">Live Location & Date Spot</h3>
-                          {userCoords && (
-                            <span className="flex items-center gap-1 text-[11px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium">
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>
-                              You (Live)
-                            </span>
-                          )}
-                          {partnerCoords && (
-                            <span className="flex items-center gap-1 text-[11px] text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full font-medium">
-                              <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
-                              {partnerName} (Live)
-                            </span>
-                          )}
+                    {/* LIVE GROUP MAP */}
+                    <div className="bg-white p-3 sm:p-4 rounded-3xl border border-stone-200 shadow-sm flex flex-col h-[380px] sm:h-[480px]">
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2.5 px-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h3 className="font-bold text-xs sm:text-sm">Live Location & Date Spot</h3>
+                          {members.map((m, idx) => (
+                            m.lat && m.lng ? (
+                              <span key={m.id} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border" style={{ color: memberColors[idx % memberColors.length], borderColor: memberColors[idx % memberColors.length] }}>
+                                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: memberColors[idx % memberColors.length] }}></span>
+                                {m.name}
+                              </span>
+                            ) : null
+                          ))}
                         </div>
 
-                        {/* Distance Indicator */}
                         {coupleDistanceKm !== null && (
-                          <div className="bg-rose-500 text-white px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 shadow-xs">
-                            <Radio size={12} className="animate-pulse" />
+                          <div className="bg-rose-500 text-white px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-2xs">
+                            <Radio size={10} className="animate-pulse" />
                             <span>{coupleDistanceKm < 1 ? `${Math.round(coupleDistanceKm * 1000)}m apart` : `${coupleDistanceKm.toFixed(1)} km apart`}</span>
                           </div>
                         )}
@@ -1592,45 +1336,30 @@ export default function App() {
 
                       <div className="flex-1 w-full rounded-2xl overflow-hidden border border-stone-200 relative z-0">
                         <MapContainer
-                          center={userCoords || partnerCoords || [currentPlan.lat, currentPlan.lng]}
+                          center={userCoords || [currentPlan.lat, currentPlan.lng]}
                           zoom={13}
                           scrollWheelZoom={true}
                           style={{ height: '100%', width: '100%' }}
                           key={`main-map-${currentPlan.id}`}
                         >
-                          <TileLayer
-                            attribution='&copy; OpenStreetMap contributors'
-                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                          />
+                          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                           <MapFlyToController centerCoords={userCoords} />
 
-                          {/* Your Live Pin */}
-                          {userCoords && (
-                            <Marker position={userCoords} icon={createUserIcon(currentUser, '#2563eb')}>
-                              <Popup>
-                                <strong>{currentUser} (You)</strong><br />
-                                Live location updated
-                              </Popup>
-                            </Marker>
-                          )}
+                          {/* Render all members up to 8 */}
+                          {members.map((m, idx) => {
+                            if (!m.lat || !m.lng) return null;
+                            return (
+                              <Marker key={m.id} position={[m.lat, m.lng]} icon={createUserIcon(m.name, memberColors[idx % memberColors.length])}>
+                                <Popup>
+                                  <strong>{m.name}</strong><br />
+                                  {m.updated_at ? `Active: ${new Date(m.updated_at).toLocaleTimeString()}` : 'Live now'}
+                                </Popup>
+                              </Marker>
+                            );
+                          })}
 
-                          {/* Partner's Live Pin */}
-                          {partnerCoords && (
-                            <Marker position={partnerCoords} icon={createUserIcon(partnerName, '#e11d48')}>
-                              <Popup>
-                                <strong>{partnerName}</strong><br />
-                                {partnerLastSeen ? `Updated: ${new Date(partnerLastSeen).toLocaleTimeString()}` : 'Live now'}
-                              </Popup>
-                            </Marker>
-                          )}
-
-                          {/* Date Destination Pin */}
                           <Marker position={[currentPlan.lat, currentPlan.lng]}>
-                            <Popup>
-                              <strong>{currentPlan.title}</strong>
-                              <br />
-                              {currentPlan.locationName}
-                            </Popup>
+                            <Popup><strong>{currentPlan.title}</strong><br />{currentPlan.locationName}</Popup>
                           </Marker>
                         </MapContainer>
                       </div>
@@ -1645,102 +1374,68 @@ export default function App() {
 
       {/* ARCHIVE TAB */}
       {activeTab === 'history' && (
-        <section className="max-w-5xl mx-auto mt-6">
-          <div className="flex justify-between items-center mb-6">
+        <section className="max-w-5xl mx-auto mt-4 sm:mt-6">
+          <div className="flex justify-between items-center mb-4 sm:mb-6">
             <div>
-              <h2 className="text-xl font-bold text-stone-900 flex items-center gap-2">
-                Our Date Scrapbook 💕
-              </h2>
-              <p className="text-xs text-stone-500">Every single date, preserved like polaroids of our story</p>
+              <h2 className="text-lg sm:text-xl font-bold text-stone-900 flex items-center gap-1.5">Our Date Scrapbook 💕</h2>
+              <p className="text-[11px] sm:text-xs text-stone-500">Preserved polaroids of our story</p>
             </div>
-            <span className="text-xs font-semibold px-3 py-1 bg-rose-100 text-rose-700 rounded-full">
-              {historyPlans.length} Finished
-            </span>
+            <span className="text-xs font-semibold px-2.5 py-1 bg-rose-100 text-rose-700 rounded-full">{historyPlans.length} Finished</span>
           </div>
 
           {historyPlans.length === 0 ? (
-            <div className="bg-white rounded-3xl p-12 text-center border border-stone-200 shadow-sm">
-              <History size={36} className="mx-auto text-stone-300 mb-2" />
-              <h3 className="font-bold text-sm text-stone-800">No date memories archived yet</h3>
-              <p className="text-xs text-stone-500 mt-1">When you finish a date, click "Mark as Done" in the planner to keep it in this scrapbook!</p>
+            <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border border-stone-200 shadow-sm">
+              <History size={32} className="mx-auto text-stone-300 mb-2" />
+              <h3 className="font-bold text-xs sm:text-sm text-stone-800">No date memories archived yet</h3>
+              <p className="text-xs text-stone-500 mt-1">When you finish a date, click "Mark Done" in the planner to keep it here!</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
               {historyPlans.map((plan) => {
-                const memoryDisplayPhoto = plan.memory_photo ||
-                  plan.outfit_photos?.[plan.dressCode] ||
-                  'https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=800&auto=format&fit=crop&q=80';
-
+                const memoryDisplayPhoto = plan.memory_photo || plan.outfit_photos?.[plan.dressCode] || 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=800&auto=format&fit=crop&q=80';
                 return (
-                  <div
-                    key={plan.id}
-                    className="bg-white p-6 rounded-3xl border border-stone-200/90 shadow-md hover:shadow-xl transition-all duration-300 relative group flex flex-col justify-between"
-                  >
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-20 h-6 bg-amber-100/80 border border-amber-200/60 rounded-xs -rotate-2 shadow-2xs pointer-events-none" />
-
-                    <button
-                      onClick={() => handleDeletePlan(plan.id)}
-                      className="absolute top-4 right-4 p-2 bg-white/90 hover:bg-rose-50 text-stone-300 hover:text-rose-600 rounded-full transition-colors shadow-2xs z-10 cursor-pointer"
-                      title="Delete archived memory"
-                    >
-                      <Trash2 size={15} />
+                  <div key={plan.id} className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200/90 shadow-md hover:shadow-xl transition-all duration-300 relative group flex flex-col justify-between">
+                    <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-16 sm:w-20 h-5 sm:h-6 bg-amber-100/80 border border-amber-200/60 rounded-xs -rotate-2 shadow-2xs pointer-events-none" />
+                    <button onClick={() => handleDeletePlan(plan.id)} className="absolute top-3 right-3 p-1.5 bg-white/90 hover:bg-rose-50 text-stone-300 hover:text-rose-600 rounded-full transition-colors shadow-2xs z-10 cursor-pointer">
+                      <Trash2 size={13} />
                     </button>
 
                     <div>
-                      <div className="bg-stone-50 p-4 pb-6 rounded-2xl border border-stone-200/80 shadow-inner relative group/photo">
+                      <div className="bg-stone-50 p-3 sm:p-4 pb-4 sm:pb-6 rounded-2xl border border-stone-200/80 shadow-inner relative group/photo">
                         <div className="relative aspect-[4/3] rounded-xl overflow-hidden bg-stone-200">
-                          <img
-                            src={memoryDisplayPhoto}
-                            alt={plan.title}
-                            className="w-full h-full object-cover group-hover/photo:scale-105 transition-transform duration-500"
-                          />
-
-                          <label
-                            className="absolute bottom-2.5 right-2.5 p-2 bg-black/60 hover:bg-stone-900 text-white rounded-full transition-colors shadow backdrop-blur-xs cursor-pointer flex items-center justify-center"
-                            title="Replace or upload date picture"
-                          >
-                            {isUploadingMemoryPhoto ? (
-                              <Loader2 size={14} className="animate-spin text-rose-400" />
-                            ) : (
-                              <Camera size={14} />
-                            )}
-                            <input
-                              type="file"
-                              accept="image/*"
-                              disabled={isUploadingMemoryPhoto}
-                              onChange={(e) => handleMemoryPhotoUpload(e, plan.id)}
-                              className="hidden"
-                            />
+                          <img src={memoryDisplayPhoto} alt={plan.title} className="w-full h-full object-cover group-hover/photo:scale-105 transition-transform duration-500" />
+                          <label className="absolute bottom-2 right-2 p-1.5 sm:p-2 bg-black/60 hover:bg-stone-900 text-white rounded-full transition-colors backdrop-blur-xs cursor-pointer flex items-center justify-center">
+                            {isUploadingMemoryPhoto ? <Loader2 size={13} className="animate-spin text-rose-400" /> : <Camera size={13} />}
+                            <input type="file" accept="image/*" disabled={isUploadingMemoryPhoto} onChange={(e) => handleMemoryPhotoUpload(e, plan.id)} className="hidden" />
                           </label>
                         </div>
 
-                        <div className="mt-3 text-center flex items-center justify-center gap-2 text-stone-500 font-mono text-[11px]">
+                        <div className="mt-2.5 text-center flex items-center justify-center gap-1.5 text-stone-500 font-mono text-[10px] sm:text-[11px]">
                           <span>🗓️ {plan.date}</span>
                           <span>•</span>
-                          <span className="text-rose-600 font-semibold">{plan.locationName}</span>
+                          <span className="text-rose-600 font-semibold truncate">{plan.locationName}</span>
                         </div>
                       </div>
 
-                      <div className="mt-4 flex items-center justify-between">
-                        <h3 className="font-bold text-lg text-stone-900 tracking-tight">{plan.title}</h3>
+                      <div className="mt-3.5 flex items-center justify-between">
+                        <h3 className="font-bold text-base sm:text-lg text-stone-900 tracking-tight">{plan.title}</h3>
                         <div className="flex items-center text-amber-400">
                           {[...Array(plan.rating || 5)].map((_, i) => (
-                            <Star key={i} size={15} fill="currentColor" />
+                            <Star key={i} size={14} fill="currentColor" />
                           ))}
                         </div>
                       </div>
 
-                      <div className="mt-3 p-3.5 bg-rose-50/60 rounded-2xl border border-rose-100 text-xs text-stone-700 italic relative">
-                        <span className="text-rose-400 font-serif text-lg leading-none select-none">“</span>
+                      <div className="mt-2.5 p-3 bg-rose-50/60 rounded-2xl border border-rose-100 text-xs text-stone-700 italic relative">
+                        <span className="text-rose-400 font-serif text-base leading-none select-none">“</span>
                         {plan.bestMemory || 'Loved every second together!'}
-                        <span className="text-rose-400 font-serif text-lg leading-none select-none">”</span>
+                        <span className="text-rose-400 font-serif text-base leading-none select-none">”</span>
                       </div>
                     </div>
 
-                    <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between text-[11px] text-stone-400">
-                      <span className="inline-flex items-center gap-1 font-medium bg-stone-50 px-2.5 py-1 rounded-full border border-stone-200/60">
-                        <Shirt size={12} className="text-rose-500" />
-                        Outfit: <strong className="text-stone-700">{plan.dressCode}</strong>
+                    <div className="mt-3 pt-2.5 border-t border-stone-100 flex items-center justify-between text-[10px] sm:text-[11px] text-stone-400">
+                      <span className="inline-flex items-center gap-1 font-medium bg-stone-50 px-2 py-0.5 rounded-full border border-stone-200/60">
+                        <Shirt size={11} className="text-rose-500" /> Outfit: <strong className="text-stone-700">{plan.dressCode}</strong>
                       </span>
                       <span className="text-rose-500 font-semibold">Special Memory ✨</span>
                     </div>
@@ -1754,78 +1449,72 @@ export default function App() {
 
       {/* BUCKET LIST TAB */}
       {activeTab === 'bucket' && (
-        <section className="max-w-5xl mx-auto mt-6 space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm">
-            <h3 className="text-base font-bold text-stone-900 mb-1">Add to Our Date Wishlist</h3>
-            <p className="text-xs text-stone-500 mb-4">Places or activities you want to try together someday</p>
+        <section className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-4 sm:space-y-6">
+          <div className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm">
+            <h3 className="text-sm sm:text-base font-bold text-stone-900 mb-0.5">Add to Date Wishlist</h3>
+            <p className="text-xs text-stone-500 mb-3 sm:mb-4">Places or activities to try together</p>
 
-            <form onSubmit={handleAddBucketItem} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <form onSubmit={handleAddBucketItem} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
               <input
                 type="text"
                 placeholder="e.g. Pottery Class, Stargazing"
                 value={newBucketTitle}
                 onChange={(e) => setNewBucketTitle(e.target.value)}
-                className="px-4 py-2.5 rounded-xl border border-stone-200 text-xs focus:ring-2 focus:ring-rose-400 sm:col-span-2"
+                className="px-3.5 py-2 rounded-xl border border-stone-200 text-xs focus:ring-2 focus:ring-rose-400 sm:col-span-2"
                 required
               />
               <select
                 value={newBucketVibe}
                 onChange={(e) => setNewBucketVibe(e.target.value)}
-                className="px-3 py-2.5 rounded-xl border border-stone-200 text-xs font-medium"
+                className="px-3 py-2 rounded-xl border border-stone-200 text-xs font-medium"
               >
                 <option>Cozy & Romantic</option>
                 <option>Chill & Outdoor</option>
                 <option>Fancy Dinner</option>
                 <option>Fun & Adventurous</option>
               </select>
-              <button
-                type="submit"
-                className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Plus size={15} /> Add Idea
+              <button type="submit" className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1 cursor-pointer">
+                <Plus size={14} /> Add Idea
               </button>
               <input
                 type="text"
                 placeholder="Optional notes or must-try food..."
                 value={newBucketNotes}
                 onChange={(e) => setNewBucketNotes(e.target.value)}
-                className="px-4 py-2 rounded-xl border border-stone-200 text-xs sm:col-span-4"
+                className="px-3.5 py-2 rounded-xl border border-stone-200 text-xs sm:col-span-4"
               />
             </form>
           </div>
 
           {bucketList.length === 0 ? (
-            <div className="bg-white rounded-3xl p-12 text-center border border-stone-200 shadow-sm">
-              <BookmarkPlus size={36} className="mx-auto text-stone-300 mb-2" />
-              <h3 className="font-bold text-sm text-stone-800">Your Bucket List is empty</h3>
+            <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border border-stone-200 shadow-sm">
+              <BookmarkPlus size={32} className="mx-auto text-stone-300 mb-2" />
+              <h3 className="font-bold text-xs sm:text-sm text-stone-800">Your Bucket List is empty</h3>
               <p className="text-xs text-stone-500 mt-1">Add places or dream date ideas above!</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 sm:gap-4">
               {bucketList.map((item) => (
-                <div key={item.id} className="bg-white p-5 rounded-3xl border border-stone-200 shadow-sm flex flex-col justify-between">
+                <div key={item.id} className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200 shadow-sm flex flex-col justify-between">
                   <div>
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">
-                        {item.vibe}
-                      </span>
-                      <button
-                        onClick={() => handleDeleteBucketItem(item.id)}
-                        className="text-stone-300 hover:text-rose-500 p-1 cursor-pointer"
-                        title="Delete"
-                      >
-                        ✕
-                      </button>
+                    <div className="flex justify-between items-start mb-1.5">
+                      <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">{item.vibe}</span>
+                      <button onClick={() => handleDeleteBucketItem(item.id)} className="text-stone-300 hover:text-rose-500 p-0.5 cursor-pointer">✕</button>
                     </div>
                     <h4 className="font-bold text-sm text-stone-900">{item.title}</h4>
                     <p className="text-xs text-stone-500 mt-1">{item.notes}</p>
                   </div>
-
                   <button
-                    onClick={() => handleConvertBucketToPlan(item)}
-                    className="mt-4 w-full py-2 bg-stone-900 hover:bg-rose-500 text-white text-xs font-medium rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    onClick={() => {
+                      setNewTitle(item.title);
+                      setNewVibe(item.vibe);
+                      setNewLocName(item.title);
+                      handleDeleteBucketItem(item.id);
+                      setIsModalOpen(true);
+                    }}
+                    className="mt-3.5 w-full py-2 bg-stone-900 hover:bg-rose-500 text-white text-xs font-medium rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    Convert to Planned Date <ArrowRight size={13} />
+                    Convert to Planned Date <ArrowRight size={12} />
                   </button>
                 </div>
               ))}
@@ -1834,15 +1523,15 @@ export default function App() {
         </section>
       )}
 
-      {/* BUDGET & BILL SPLITTER TAB */}
+      {/* BUDGET TAB */}
       {activeTab === 'budget' && (
-        <section className="max-w-5xl mx-auto mt-6 space-y-6">
-          <div className="bg-white p-4 rounded-3xl border border-stone-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+        <section className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-4 sm:space-y-6">
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-stone-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-2">
-              <DollarSign size={20} className="text-rose-500" />
+              <DollarSign size={18} className="text-rose-500" />
               <div>
-                <h3 className="text-sm font-bold text-stone-900">Select Date for Budget Tracking</h3>
-                <p className="text-xs text-stone-500">Pick which planned date you are splitting expenses for</p>
+                <h3 className="text-xs sm:text-sm font-bold text-stone-900">Group Bill Splitter ({members.length} Members)</h3>
+                <p className="text-[10px] text-stone-500">Pick planned date to split expenses</p>
               </div>
             </div>
 
@@ -1850,51 +1539,39 @@ export default function App() {
               <select
                 value={currentPlan?.id || ''}
                 onChange={(e) => setSelectedPlanId(e.target.value)}
-                className="px-3.5 py-2 rounded-xl border border-stone-200 text-xs font-semibold focus:ring-2 focus:ring-rose-400 cursor-pointer"
+                className="w-full sm:w-auto px-3 py-1.5 rounded-xl border border-stone-200 text-xs font-semibold focus:ring-2 focus:ring-rose-400 cursor-pointer"
               >
                 {upcomingPlans.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.title} ({p.date})
-                  </option>
+                  <option key={p.id} value={p.id}>{p.title} ({p.date})</option>
                 ))}
               </select>
             ) : (
-              <span className="text-xs text-stone-400 font-semibold">No active dates available</span>
+              <span className="text-xs text-stone-400 font-semibold">No active dates</span>
             )}
           </div>
 
           {!currentPlan ? (
-            <div className="bg-white rounded-3xl p-12 text-center border border-stone-200">
-              <DollarSign size={36} className="mx-auto text-stone-300 mb-2" />
-              <h3 className="font-bold text-sm text-stone-800">No active date to calculate budget for</h3>
-              <p className="text-xs text-stone-500 mt-1">Please plan a date first in the Active Dates tab!</p>
+            <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border border-stone-200">
+              <DollarSign size={32} className="mx-auto text-stone-300 mb-2" />
+              <h3 className="font-bold text-xs sm:text-sm text-stone-800">No active date to calculate budget for</h3>
+              <p className="text-xs text-stone-500 mt-1">Plan a date first in the Active tab!</p>
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
-                <div className="bg-white p-5 rounded-3xl border border-stone-200 shadow-sm">
+              <div className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm">
+                <div className="mb-4">
                   <p className="text-xs font-bold text-stone-400 uppercase">Total Date Budget</p>
-                  <p className="text-2xl font-black text-stone-900 mt-1">₱{totalCost.toLocaleString()}</p>
+                  <p className="text-xl sm:text-2xl font-black text-stone-900">₱{totalCost.toLocaleString()}</p>
                 </div>
-                <div className="bg-white p-5 rounded-3xl border border-stone-200 shadow-sm">
-                  <p className="text-xs font-bold text-rose-500 uppercase">{currentUser}'s Share</p>
-                  <p className="text-2xl font-black text-rose-600 mt-1">₱{myShare.toLocaleString()}</p>
-                </div>
-                <div className="bg-white p-5 rounded-3xl border border-stone-200 shadow-sm">
-                  <p className="text-xs font-bold text-stone-600 uppercase">{partnerName}'s Share</p>
-                  <p className="text-2xl font-black text-stone-800 mt-1">₱{partnerShare.toLocaleString()}</p>
-                </div>
-              </div>
 
-              <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm">
-                <h3 className="font-bold text-sm text-stone-900 mb-3">Add Expense for "{currentPlan.title}"</h3>
-                <form onSubmit={handleAddBudgetItem} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <h3 className="font-bold text-xs sm:text-sm text-stone-900 mb-3">Add Expense for "{currentPlan.title}"</h3>
+                <form onSubmit={handleAddBudgetItem} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
                   <input
                     type="text"
                     placeholder="Item (e.g. Dinner, Cinema)"
                     value={newBudgetItem}
                     onChange={(e) => setNewBudgetItem(e.target.value)}
-                    className="px-3.5 py-2 rounded-xl border border-stone-200 text-xs"
+                    className="px-3 py-2 rounded-xl border border-stone-200 text-xs"
                     required
                   />
                   <input
@@ -1902,42 +1579,37 @@ export default function App() {
                     placeholder="Cost in ₱"
                     value={newBudgetCost}
                     onChange={(e) => setNewBudgetCost(e.target.value)}
-                    className="px-3.5 py-2 rounded-xl border border-stone-200 text-xs"
+                    className="px-3 py-2 rounded-xl border border-stone-200 text-xs"
                     required
                   />
                   <select
                     value={newBudgetPaidBy}
-                    onChange={(e) => setNewBudgetPaidBy(e.target.value as any)}
-                    className="px-3.5 py-2 rounded-xl border border-stone-200 text-xs cursor-pointer"
+                    onChange={(e) => setNewBudgetPaidBy(e.target.value)}
+                    className="px-3 py-2 rounded-xl border border-stone-200 text-xs cursor-pointer"
                   >
-                    <option value="50/50">Split 50 / 50</option>
-                    <option value="You">Treated by {currentUser}</option>
-                    <option value="Partner">Treated by {partnerName}</option>
+                    {members.map((m) => (
+                      <option key={m.id} value={m.name}>Paid by {m.name}</option>
+                    ))}
                   </select>
-                  <button
-                    type="submit"
-                    className="py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-semibold cursor-pointer"
-                  >
-                    Add to Expense
+                  <button type="submit" className="py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-semibold cursor-pointer">
+                    Add Expense
                   </button>
                 </form>
 
-                <div className="mt-6 divide-y divide-stone-100">
+                <div className="mt-4 divide-y divide-stone-100">
                   {currentBudget.length === 0 ? (
-                    <p className="text-xs text-stone-400 text-center py-6">No expenses added yet for this date.</p>
+                    <p className="text-xs text-stone-400 text-center py-4">No expenses added yet.</p>
                   ) : (
                     currentBudget.map((b) => (
-                      <div key={b.id} className="py-3 flex items-center justify-between text-xs px-2 hover:bg-stone-50 rounded-xl">
+                      <div key={b.id} className="py-2.5 flex items-center justify-between text-xs px-1">
                         <div>
-                          <p className="font-semibold text-stone-800 text-sm">{b.item}</p>
-                          <span className="text-[11px] text-stone-400">
-                            Paid by: {b.paidBy === 'You' ? currentUser : b.paidBy === 'Partner' ? partnerName : '50/50'}
-                          </span>
+                          <p className="font-semibold text-stone-800 text-xs">{b.item}</p>
+                          <span className="text-[10px] text-stone-400">Paid by: {b.paidBy}</span>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className="font-extrabold text-stone-900 text-sm">₱{b.cost.toLocaleString()}</span>
+                        <div className="flex items-center gap-2.5">
+                          <span className="font-bold text-stone-900 text-xs">₱{b.cost.toLocaleString()}</span>
                           <button onClick={() => handleDeleteBudgetItem(b.id)} className="text-stone-400 hover:text-rose-600 cursor-pointer">
-                            <Trash2 size={14} />
+                            <Trash2 size={13} />
                           </button>
                         </div>
                       </div>
@@ -1952,31 +1624,19 @@ export default function App() {
 
       {/* CREATE DATE MODAL */}
       {isModalOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999]"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsModalOpen(false);
-          }}
-        >
-          <div
-            className="bg-white w-full max-w-xl rounded-3xl p-6 shadow-2xl border border-stone-200 max-h-[92vh] overflow-y-auto relative z-[10000] pointer-events-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-[9999]" onClick={(e) => { if (e.target === e.currentTarget) setIsModalOpen(false); }}>
+          <div className="bg-white w-full max-w-lg rounded-3xl p-5 sm:p-6 shadow-2xl border border-stone-200 max-h-[90vh] overflow-y-auto relative z-[10000] pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3">
               <div>
-                <h2 className="text-lg font-bold text-stone-900">Plan a new date</h2>
-                <p className="text-xs text-stone-500">Pick destination, vibe, outfit, and places to visit</p>
+                <h2 className="text-base sm:text-lg font-bold text-stone-900">Plan a new date</h2>
+                <p className="text-[11px] text-stone-500">Destination, vibe, outfit & stops</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
-              >
+              <button type="button" onClick={() => setIsModalOpen(false)} className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors cursor-pointer">
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleCreateDate} className="space-y-4">
+            <form onSubmit={handleCreateDate} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">Date Title</label>
                 <input
@@ -1984,20 +1644,20 @@ export default function App() {
                   placeholder="e.g. Sunday Blessing & Sunset Dinner"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs sm:text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
                   required
                   autoFocus
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-xs font-semibold text-stone-700 mb-1">Date</label>
                   <input
                     type="date"
                     value={newDate}
                     onChange={(e) => setNewDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs sm:text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
                     required
                   />
                 </div>
@@ -2006,7 +1666,7 @@ export default function App() {
                   <select
                     value={newVibe}
                     onChange={(e) => setNewVibe(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer"
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs sm:text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer"
                   >
                     <option>Cozy & Romantic</option>
                     <option>Fancy Dinner</option>
@@ -2017,148 +1677,28 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Visual Outfit Selector */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-semibold text-stone-700">
-                    Choose Outfit Style for this Date
-                  </label>
-                  <label className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-full border border-rose-200 cursor-pointer">
-                    {isUploadingPhoto ? (
-                      <Loader2 size={12} className="animate-spin text-rose-500" />
-                    ) : (
-                      <Camera size={12} />
-                    )}
-                    <span>{isUploadingPhoto ? 'Uploading...' : 'Upload Custom Photo'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      disabled={isUploadingPhoto}
-                      onChange={handleModalPhotoUpload}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto p-1">
-                  {outfitPresets.map((preset) => {
-                    const isSelected = selectedOutfitType === preset.label;
-                    const previewImage = newOutfitPhotos[preset.label] || preset.defaultImage;
-
-                    return (
-                      <div
-                        key={preset.id}
-                        onClick={() => setSelectedOutfitType(preset.label)}
-                        className={`p-2 rounded-2xl border cursor-pointer transition-all flex items-center gap-3 ${isSelected
-                          ? 'border-rose-500 bg-rose-50/60 shadow-xs'
-                          : 'border-stone-200 hover:border-stone-300 bg-stone-50/50'
-                          }`}
-                      >
-                        <img
-                          src={previewImage}
-                          alt={preset.label}
-                          className="w-12 h-12 rounded-xl object-cover border border-stone-200 flex-shrink-0"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-stone-800 truncate">{preset.label}</p>
-                          <p className="text-[10px] text-stone-500 truncate">{preset.desc}</p>
-                          {newOutfitPhotos[preset.label] && (
-                            <span className="text-[9px] text-rose-600 font-semibold">Custom uploaded</span>
-                          )}
-                        </div>
-                        {isSelected && (
-                          <span className="p-1 bg-rose-500 text-white rounded-full flex-shrink-0">
-                            <Check size={12} />
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Checklist Stops */}
-              <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-stone-800">
-                    Where To Go Checklist (Itinerary Stops)
-                  </label>
-                  <span className="text-[11px] text-stone-400">{modalTasks.length} stops planned</span>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {modalTasks.map((task, idx) => (
-                    <span
-                      key={idx}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-stone-200 text-stone-700 text-xs rounded-xl shadow-2xs"
-                    >
-                      <CheckSquare size={13} className="text-rose-500" />
-                      <span>{task}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveModalTask(idx)}
-                        className="hover:text-rose-500 text-stone-400 ml-1 cursor-pointer"
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-
-                <div className="flex gap-2">
+                <label className="block text-xs font-semibold text-stone-700 mb-1">Pin Location</label>
+                <div className="flex gap-1.5 mb-1.5">
                   <input
                     type="text"
-                    placeholder="e.g. Church, Milk tea, Arcade..."
-                    value={taskInput}
-                    onChange={(e) => setTaskInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (taskInput.trim()) {
-                          setModalTasks([...modalTasks, taskInput.trim()]);
-                          setTaskInput('');
-                        }
-                      }
-                    }}
-                    className="flex-1 px-3 py-2 rounded-xl border border-stone-300 bg-white text-xs text-stone-900 focus:outline-hidden focus:ring-2 focus:ring-rose-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddModalTask}
-                    className="px-4 py-2 bg-stone-900 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                  >
-                    + Add Stop
-                  </button>
-                </div>
-              </div>
-
-              {/* Location search & Pin */}
-              <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1">Search & Pin Location</label>
-                <div className="flex gap-1.5 mb-2">
-                  <input
-                    type="text"
-                    placeholder="Search place or landmark..."
+                    placeholder="Search place..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-xl border border-stone-300 text-xs text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                    className="flex-1 px-3 py-1.5 rounded-xl border border-stone-300 text-xs text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
                   />
-                  <button
-                    type="button"
-                    onClick={(e) => handleSearchLocation(e, false)}
-                    className="px-3.5 py-2 bg-stone-800 hover:bg-stone-900 text-white text-xs font-medium rounded-xl cursor-pointer"
-                  >
+                  <button type="button" onClick={handleSearchLocation} className="px-3.5 py-2 bg-stone-800 hover:bg-stone-900 text-white text-xs font-medium rounded-xl cursor-pointer">
                     {isSearching ? '...' : 'Find'}
                   </button>
                 </div>
                 <input
                   type="text"
-                  placeholder="Custom name for place (e.g. Skyline Cafe / Church)"
+                  placeholder="Custom name for place (e.g. Skyline Cafe)"
                   value={newLocName}
                   onChange={(e) => setNewLocName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs text-stone-900 bg-white mb-2 focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                  className="w-full px-3 py-1.5 rounded-xl border border-stone-300 text-xs text-stone-900 bg-white mb-1.5 focus:outline-hidden focus:ring-2 focus:ring-rose-500"
                 />
-                <div className="h-44 w-full rounded-2xl overflow-hidden border border-stone-200">
+                <div className="h-36 w-full rounded-2xl overflow-hidden border border-stone-200">
                   <MapContainer center={pinnedCoords} zoom={12} style={{ height: '100%', width: '100%' }}>
                     <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                     <MapFlyToController centerCoords={mapCenterTarget} />
@@ -2167,20 +1707,10 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-xs text-stone-600 hover:bg-stone-100 rounded-xl cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUploadingPhoto}
-                  className="px-6 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-full text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
-                >
-                  {isUploadingPhoto ? 'Uploading Image...' : 'Save Date Plan'}
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-3.5 py-2 text-xs text-stone-600 hover:bg-stone-100 rounded-xl cursor-pointer">Cancel</button>
+                <button type="submit" disabled={isUploadingPhoto} className="px-5 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-full text-xs font-bold shadow-xs flex items-center gap-1 cursor-pointer">
+                  {isUploadingPhoto ? 'Uploading...' : 'Save Date'}
                 </button>
               </div>
             </form>
@@ -2190,57 +1720,28 @@ export default function App() {
 
       {/* EDIT MODAL */}
       {isEditModalOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999]"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsEditModalOpen(false);
-          }}
-        >
-          <div
-            className="bg-white w-full max-w-xl rounded-3xl p-6 shadow-2xl border border-stone-200 max-h-[92vh] overflow-y-auto relative z-[10000] pointer-events-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-stone-900">Edit Date Details</h2>
-              <button
-                type="button"
-                onClick={() => setIsEditModalOpen(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
-              >
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-[9999]" onClick={(e) => { if (e.target === e.currentTarget) setIsEditModalOpen(false); }}>
+          <div className="bg-white w-full max-w-lg rounded-3xl p-5 sm:p-6 shadow-2xl border border-stone-200 max-h-[90vh] overflow-y-auto relative z-[10000] pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-base sm:text-lg font-bold text-stone-900">Edit Date Details</h2>
+              <button type="button" onClick={() => setIsEditModalOpen(false)} className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors cursor-pointer">
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleSaveEdit} className="space-y-4">
+            <form onSubmit={handleSaveEdit} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">Date Title</label>
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
-                  required
-                />
+                <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs sm:text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500" required />
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-xs font-semibold text-stone-700 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={editDate}
-                    onChange={(e) => setEditDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500"
-                    required
-                  />
+                  <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs sm:text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500" required />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-stone-700 mb-1">Theme</label>
-                  <select
-                    value={editVibe}
-                    onChange={(e) => setEditVibe(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer"
-                  >
+                  <select value={editVibe} onChange={(e) => setEditVibe(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs sm:text-sm text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer">
                     <option>Cozy & Romantic</option>
                     <option>Fancy Dinner</option>
                     <option>Chill & Outdoor</option>
@@ -2250,30 +1751,13 @@ export default function App() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1">Outfit Theme</label>
-                <select
-                  value={editOutfitType}
-                  onChange={(e) => setEditOutfitType(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs font-medium text-stone-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer"
-                >
-                  {outfitPresets.map((p) => (
-                    <option key={p.id} value={p.label}>{p.label} - {p.desc}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center justify-between pt-3 border-t border-stone-100">
-                <button
-                  type="button"
-                  onClick={() => handleDeletePlan(editPlanId)}
-                  className="text-xs text-rose-600 font-semibold flex items-center gap-1 hover:bg-rose-50 p-2 rounded-lg cursor-pointer"
-                >
-                  <Trash2 size={14} /> Delete Date
+              <div className="flex items-center justify-between pt-2.5 border-t border-stone-100">
+                <button type="button" onClick={() => handleDeletePlan(editPlanId)} className="text-xs text-rose-600 font-semibold flex items-center gap-1 hover:bg-rose-50 p-2 rounded-lg cursor-pointer">
+                  <Trash2 size={13} /> Delete Date
                 </button>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-xs text-stone-600 cursor-pointer">Cancel</button>
-                  <button type="submit" className="px-5 py-2 bg-rose-500 text-white rounded-full text-xs font-medium cursor-pointer">Save Changes</button>
+                  <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-3.5 py-1.5 text-xs text-stone-600 cursor-pointer">Cancel</button>
+                  <button type="submit" className="px-4 py-1.5 bg-rose-500 text-white rounded-full text-xs font-medium cursor-pointer">Save Changes</button>
                 </div>
               </div>
             </form>
@@ -2283,103 +1767,59 @@ export default function App() {
 
       {/* MARK DONE MODAL */}
       {isFinishModalOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999]"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsFinishModalOpen(false);
-          }}
-        >
-          <div
-            className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-stone-200 relative z-[10000] pointer-events-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-[9999]" onClick={(e) => { if (e.target === e.currentTarget) setIsFinishModalOpen(false); }}>
+          <div className="bg-white w-full max-w-md rounded-3xl p-5 sm:p-6 shadow-2xl border border-stone-200 relative z-[10000] pointer-events-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-1">
-              <h2 className="text-lg font-bold text-stone-900">Mark Date as Done! 💕</h2>
-              <button
-                type="button"
-                onClick={() => setIsFinishModalOpen(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
-              >
+              <h2 className="text-base sm:text-lg font-bold text-stone-900">Mark Date as Done! 💕</h2>
+              <button type="button" onClick={() => setIsFinishModalOpen(false)} className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors cursor-pointer">
                 <X size={18} />
               </button>
             </div>
-            <p className="text-xs text-stone-500 mb-4">This will archive this date into your scrapbook</p>
+            <p className="text-xs text-stone-500 mb-3.5">Archive this memory into your scrapbook</p>
 
-            <form onSubmit={handleCompleteDate} className="space-y-4">
+            <form onSubmit={handleCompleteDate} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">Rate this Date</label>
-                <div className="flex gap-2">
+                <div className="flex gap-1.5">
                   {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() => setFinishRating(star)}
-                      className="p-1 text-amber-400 cursor-pointer"
-                    >
-                      <Star size={24} fill={star <= finishRating ? 'currentColor' : 'none'} />
+                    <button key={star} type="button" onClick={() => setFinishRating(star)} className="p-1 text-amber-400 cursor-pointer">
+                      <Star size={22} fill={star <= finishRating ? 'currentColor' : 'none'} />
                     </button>
                   ))}
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1.5">
-                  Upload Our Date Photo (Polaroid Memory)
-                </label>
-
+                <label className="block text-xs font-semibold text-stone-700 mb-1">Upload Date Photo (Polaroid Memory)</label>
                 {finishMemoryPhoto ? (
                   <div className="relative rounded-2xl overflow-hidden aspect-[16/9] border border-stone-200 group">
                     <img src={finishMemoryPhoto} alt="Memory preview" className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setFinishMemoryPhoto(null)}
-                      className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors cursor-pointer"
-                    >
-                      <X size={14} />
+                    <button type="button" onClick={() => setFinishMemoryPhoto(null)} className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors cursor-pointer">
+                      <X size={13} />
                     </button>
                   </div>
                 ) : (
-                  <label className="border-2 border-dashed border-stone-200 hover:border-rose-400 rounded-2xl p-5 flex flex-col items-center justify-center cursor-pointer bg-stone-50/50 hover:bg-rose-50/30 transition-all">
-                    {isUploadingMemoryPhoto ? (
-                      <Loader2 size={24} className="animate-spin text-rose-500" />
-                    ) : (
+                  <label className="border-2 border-dashed border-stone-200 hover:border-rose-400 rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-stone-50/50 hover:bg-rose-50/30 transition-all">
+                    {isUploadingMemoryPhoto ? <Loader2 size={22} className="animate-spin text-rose-500" /> : (
                       <>
-                        <ImagePlus size={24} className="text-rose-400 mb-1" />
+                        <ImagePlus size={22} className="text-rose-400 mb-1" />
                         <span className="text-xs font-bold text-stone-700">Add a selfie or photo from the date!</span>
                         <span className="text-[10px] text-stone-400 mt-0.5">Click to choose image</span>
                       </>
                     )}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      disabled={isUploadingMemoryPhoto}
-                      onChange={(e) => handleMemoryPhotoUpload(e)}
-                      className="hidden"
-                    />
+                    <input type="file" accept="image/*" disabled={isUploadingMemoryPhoto} onChange={(e) => handleMemoryPhotoUpload(e)} className="hidden" />
                   </label>
                 )}
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">Our Favorite Memory / Note</label>
-                <textarea
-                  value={finishMemory}
-                  onChange={(e) => setFinishMemory(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 text-xs text-stone-900 bg-white h-20 focus:outline-hidden focus:ring-2 focus:ring-rose-500"
-                  placeholder="What was the most special highlight of our date?"
-                  required
-                />
+                <textarea value={finishMemory} onChange={(e) => setFinishMemory(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs text-stone-900 bg-white h-20 focus:outline-hidden focus:ring-2 focus:ring-rose-500" placeholder="What was the highlight of our date?" required />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setIsFinishModalOpen(false)} className="px-4 py-2 text-xs text-stone-600 cursor-pointer">
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUploadingMemoryPhoto}
-                  className="px-5 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-full text-xs font-bold shadow-xs cursor-pointer"
-                >
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setIsFinishModalOpen(false)} className="px-3.5 py-1.5 text-xs text-stone-600 cursor-pointer">Cancel</button>
+                <button type="submit" disabled={isUploadingMemoryPhoto} className="px-5 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-full text-xs font-bold shadow-xs cursor-pointer">
                   Save to Scrapbook
                 </button>
               </div>
