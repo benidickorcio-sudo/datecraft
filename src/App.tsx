@@ -5,7 +5,7 @@ import {
   Heart, Calendar, MapPin, Plus, Shirt, CheckSquare, ExternalLink,
   Navigation, Sparkles, Trash2, Camera, LogOut, User,
   Pencil, CloudSun, Dices, Clock, History, BookmarkPlus,
-  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, Check, X, Loader2, ImagePlus, KeyRound, Radio, Wand2
+  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, X, Loader2, ImagePlus, KeyRound, Radio, Wand2, Download, BookOpen, ChevronLeft, ChevronRight, ChevronDown
 } from 'lucide-react';
 import './utils/leafletIcons';
 import { supabase } from './supabase';
@@ -37,6 +37,7 @@ interface DatePlan {
   dressCode: string;
   outfit_photos?: Record<string, string | null>;
   memory_photo?: string | null;
+  gallery_photos?: string[];
   tasks: { id: number; text: string; done: boolean }[];
   completed?: boolean;
   rating?: number;
@@ -101,6 +102,20 @@ const rouletteIdeas = [
 
 const memberColors = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#ea580c', '#4f46e5'];
 
+function decodeWeather(code: number): string {
+  if (code === 0) return 'Clear Sky ☀️';
+  if (code === 1) return 'Mainly Clear 🌤️';
+  if (code === 2) return 'Partly Cloudy ⛅';
+  if (code === 3) return 'Overcast ☁️';
+  if (code >= 45 && code <= 48) return 'Foggy 🌫️';
+  if (code >= 51 && code <= 55) return 'Light Drizzle 🌧️';
+  if (code >= 61 && code <= 65) return 'Rain Showers 🌧️';
+  if (code >= 71 && code <= 77) return 'Snowy ❄️';
+  if (code >= 80 && code <= 82) return 'Heavy Showers ⛈️';
+  if (code >= 95 && code <= 99) return 'Thunderstorm ⚡';
+  return 'Cloudy ⛅';
+}
+
 const createUserIcon = (name: string, colorHex: string) => L.divIcon({
   className: 'custom-live-pin',
   html: `
@@ -131,13 +146,66 @@ function LocationPicker({ position, setPosition }: { position: [number, number] 
   return position ? <Marker position={position} /> : null;
 }
 
+async function compressImageFile(file: File, maxWidth = 1280, maxHeight = 1280, quality = 0.75): Promise<Blob | File> {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith('image/')) {
+      resolve(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (blob) resolve(blob);
+            else resolve(file);
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = () => resolve(file);
+    };
+    reader.onerror = () => resolve(file);
+  });
+}
+
 async function uploadToSupabaseStorage(file: File): Promise<string | null> {
   try {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+    const compressedBlob = await compressImageFile(file);
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}.jpg`;
     const filePath = `outfits/${fileName}`;
 
-    const { error } = await supabase.storage.from('outfits').upload(filePath, file, { cacheControl: '3600', upsert: true });
+    const { error } = await supabase.storage.from('outfits').upload(filePath, compressedBlob, {
+      contentType: 'image/jpeg',
+      cacheControl: '31536000',
+      upsert: true
+    });
     if (error) throw error;
 
     const { data } = supabase.storage.from('outfits').getPublicUrl(filePath);
@@ -166,7 +234,7 @@ function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
 export default function App() {
   const [activeTab, setActiveTab] = useState<'planner' | 'history' | 'bucket' | 'budget'>('planner');
 
-  // Space Membership State (Persistent across sessions)
+  // Space Membership State
   const [coupleId, setCoupleId] = useState<string | null>(() => localStorage.getItem('dc_couple_id'));
   const [spaceCode, setSpaceCode] = useState<string | null>(() => localStorage.getItem('dc_space_code'));
   const [currentUserId, setCurrentUserId] = useState<string>(() => localStorage.getItem('dc_user_id') || '');
@@ -183,7 +251,6 @@ export default function App() {
   const [joinNameInput, setJoinNameInput] = useState(() => localStorage.getItem('dc_remembered_name') || '');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
-  // Returning User Flag
   const rememberedName = localStorage.getItem('dc_remembered_name');
 
   // Plans & Items
@@ -194,13 +261,16 @@ export default function App() {
   const [newBucketNotes, setNewBucketNotes] = useState('');
   const [newBucketVibe, setNewBucketVibe] = useState('Cozy & Romantic');
 
+  // Wishlist Editing State
+  const [editingBucketItem, setEditingBucketItem] = useState<BucketItem | null>(null);
+
   // GPS Live State
   const [userCoords, setUserCoords] = useState<[number, number] | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const watchIdRef = useRef<number | null>(null);
 
   // Weather & Extra
-  const [weatherInfo, setWeatherInfo] = useState<{ temp: number; code: number } | null>(null);
+  const [weatherInfo, setWeatherInfo] = useState<{ temp: number; description: string } | null>(null);
   const [isWeatherLoading, setIsWeatherLoading] = useState(false);
   const [isSpinning, setIsSpinning] = useState(false);
   const [pickedIdea, setPickedIdea] = useState<string | null>(null);
@@ -211,6 +281,10 @@ export default function App() {
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [finishingPlanTargetId, setFinishingPlanTargetId] = useState<string | null>(null);
 
+  // Interactive Storybook Flip-Book State
+  const [isStorybookModalOpen, setIsStorybookModalOpen] = useState(false);
+  const [activeStoryPage, setActiveStoryPage] = useState<number>(0);
+
   // Form states
   const todayString = new Date().toISOString().split('T')[0];
   const [newTitle, setNewTitle] = useState('');
@@ -218,15 +292,16 @@ export default function App() {
   const [newVibe, setNewVibe] = useState('Cozy & Romantic');
   const [newLocName, setNewLocName] = useState('');
   const [pinnedCoords, setPinnedCoords] = useState<[number, number]>([14.5995, 120.9842]);
-  const [selectedOutfitType, setSelectedOutfitType] = useState(outfitPresets[0].label);
-  const [newOutfitPhotos, setNewOutfitPhotos] = useState<Record<string, string | null>>({});
-  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [selectedOutfitType] = useState(outfitPresets[0].label);
 
-  const [modalTasks, setModalTasks] = useState<string[]>([
+  // Date Multi-Photos uploader state
+  const [isUploadingGallery, setIsUploadingGallery] = useState(false);
+  const [uploadProgressText, setUploadProgressText] = useState<string>('');
+
+  const [modalTasks] = useState<string[]>([
     'Visit Church & Pray together',
     'Try cute cafe / coffee date'
   ]);
-  const [taskInput, setTaskInput] = useState('');
   const [inlineTaskInput, setInlineTaskInput] = useState('');
 
   // Edit Date Form State
@@ -247,7 +322,7 @@ export default function App() {
   // Budget
   const [newBudgetItem, setNewBudgetItem] = useState('');
   const [newBudgetCost, setNewBudgetCost] = useState('');
-  const [newBudgetPaidBy, setNewBudgetPaidBy] = useState('');
+  const [newBudgetPaidBy, setNewBudgetPaidBy] = useState('50/50');
 
   // Search Map
   const [searchQuery, setSearchQuery] = useState('');
@@ -300,8 +375,8 @@ export default function App() {
   };
 
   const fetchDatePlans = async (cId: string) => {
-    const { data, error } = await supabase.from('date_plans').select('*').eq('couple_id', cId).order('date', { ascending: true });
-    if (!error && data) {
+    const { data, error: fetchErr } = await supabase.from('date_plans').select('*').eq('couple_id', cId).order('date', { ascending: true });
+    if (!fetchErr && data) {
       setPlans(data.map((d: any) => ({
         id: d.id,
         couple_id: d.couple_id,
@@ -314,6 +389,7 @@ export default function App() {
         dressCode: d.dress_code,
         outfit_photos: d.outfit_photos || {},
         memory_photo: d.memory_photo || null,
+        gallery_photos: d.gallery_photos || [],
         tasks: d.tasks || [],
         completed: Boolean(d.completed),
         rating: d.rating,
@@ -324,7 +400,7 @@ export default function App() {
   };
 
   const fetchBucketList = async (cId: string) => {
-    const { data, error } = await supabase.from('bucket_items').select('*').eq('couple_id', cId).order('created_at', { ascending: false });
+    const { data } = await supabase.from('bucket_items').select('*').eq('couple_id', cId).order('created_at', { ascending: false });
     if (data) setBucketList(data);
   };
 
@@ -354,29 +430,31 @@ export default function App() {
 
   const upcomingPlans = plans.filter((p) => !p.completed);
   const historyPlans = plans.filter((p) => Boolean(p.completed));
-  const currentPlan = upcomingPlans.find((p) => p.id === selectedPlanId) || upcomingPlans[0] || null;
-  const activeOutfitPreset = outfitPresets.find((p) => p.label === currentPlan?.dressCode) || outfitPresets[0];
-  const activeOutfitImage = currentPlan?.outfit_photos?.[currentPlan?.dressCode] || activeOutfitPreset.defaultImage;
 
+  const currentPlan = upcomingPlans.find((p) => p.id === selectedPlanId) || upcomingPlans[0] || null;
+
+  // Accurate Live Weather Fetching using WMO code
   useEffect(() => {
     if (!currentPlan) return;
     setIsWeatherLoading(true);
-    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${currentPlan.lat}&longitude=${currentPlan.lng}&current=temperature_2m,weather_code`)
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${currentPlan.lat}&longitude=${currentPlan.lng}&current=temperature_2m,weather_code&timezone=auto`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.current) setWeatherInfo({ temp: Math.round(data.current.temperature_2m), code: data.current.weather_code });
+        if (data.current) {
+          const temp = Math.round(data.current.temperature_2m);
+          const weatherDesc = decodeWeather(data.current.weather_code);
+          setWeatherInfo({ temp, description: weatherDesc });
+        }
       })
       .catch(() => setWeatherInfo(null))
       .finally(() => setIsWeatherLoading(false));
   }, [currentPlan?.lat, currentPlan?.lng]);
 
-  // Auth: Create Space
   const handleCreateSpace = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createNameInput.trim()) return;
 
     setIsAuthLoading(true);
-
     const rawCode = customCodeInput.trim() || `LOVE-${Math.floor(1000 + Math.random() * 9000)}`;
     const finalCode = rawCode.toUpperCase().replace(/\s+/g, '-');
 
@@ -384,7 +462,7 @@ export default function App() {
     const myName = createNameInput.trim();
     const initialMembers: Member[] = [{ id: myId, name: myName, updated_at: new Date().toISOString() }];
 
-    const { data, error } = await supabase.from('couples').insert([{
+    const { data, error: insertErr } = await supabase.from('couples').insert([{
       space_code: finalCode,
       max_members: maxMembersInput,
       members: initialMembers,
@@ -394,11 +472,11 @@ export default function App() {
 
     setIsAuthLoading(false);
 
-    if (error) {
-      if (error.code === '23505') {
+    if (insertErr) {
+      if (insertErr.code === '23505') {
         alert(`The space code "${finalCode}" is already taken! Please pick a different code.`);
       } else {
-        alert(`Error creating space: ${error.message}`);
+        alert(`Error creating space: ${insertErr.message}`);
       }
       return;
     }
@@ -408,7 +486,7 @@ export default function App() {
       localStorage.setItem('dc_space_code', data.space_code);
       localStorage.setItem('dc_user_id', myId);
       localStorage.setItem('dc_user_name', myName);
-      localStorage.setItem('dc_remembered_name', myName); // Remembers device user
+      localStorage.setItem('dc_remembered_name', myName);
 
       setCoupleId(data.id);
       setSpaceCode(data.space_code);
@@ -419,7 +497,6 @@ export default function App() {
     }
   };
 
-  // Auth: Join Space with Smart Name Detection
   const handleJoinSpace = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCodeInput.trim()) return;
@@ -427,45 +504,35 @@ export default function App() {
     setIsAuthLoading(true);
     const cleanCode = joinCodeInput.trim().toUpperCase();
 
-    const { data, error } = await supabase.from('couples').select('*').eq('space_code', cleanCode).single();
+    const { data, error: joinErr } = await supabase.from('couples').select('*').eq('space_code', cleanCode).single();
     setIsAuthLoading(false);
 
-    if (error || !data) {
+    if (joinErr || !data) {
       alert('Space code not found! Please check the code.');
       return;
     }
 
     const currentMemberList: Member[] = data.members || [];
     const roomLimit = data.max_members || 2;
-
-    // Check if device is already registered in this space
     const storedUserId = localStorage.getItem('dc_user_id');
     const existingMemberByStoredId = currentMemberList.find((m) => m.id === storedUserId);
     const savedName = rememberedName || joinNameInput.trim();
-
-    // Check if name is already part of the space member list
-    const existingMemberByName = currentMemberList.find(
-      (m) => m.name.toLowerCase() === savedName.toLowerCase()
-    );
+    const existingMemberByName = currentMemberList.find((m) => m.name.toLowerCase() === savedName.toLowerCase());
 
     let activeUserId = storedUserId;
     let activeUserName = savedName;
 
     if (existingMemberByStoredId) {
-      // 1. Returning device: Automatic login
       activeUserId = existingMemberByStoredId.id;
       activeUserName = existingMemberByStoredId.name;
     } else if (existingMemberByName) {
-      // 2. Recognized member by name: Reconnect
       activeUserId = existingMemberByName.id;
       activeUserName = existingMemberByName.name;
     } else {
-      // 3. New member joining: check capacity and name requirement
       if (!savedName) {
         alert('Please enter your name to join this space for the first time!');
         return;
       }
-
       if (currentMemberList.length >= roomLimit) {
         alert(`This space is full! Maximum limit is ${roomLimit} people.`);
         return;
@@ -474,12 +541,10 @@ export default function App() {
       activeUserId = 'usr_' + Date.now();
       activeUserName = savedName;
       const updatedMemberList = [...currentMemberList, { id: activeUserId, name: activeUserName, updated_at: new Date().toISOString() }];
-
       await supabase.from('couples').update({ members: updatedMemberList }).eq('id', data.id);
       setMembers(updatedMemberList);
     }
 
-    // Save login credentials to local storage
     localStorage.setItem('dc_couple_id', data.id);
     localStorage.setItem('dc_space_code', data.space_code);
     localStorage.setItem('dc_user_id', activeUserId || '');
@@ -491,16 +556,10 @@ export default function App() {
     setCurrentUserId(activeUserId || '');
     setCurrentUserName(activeUserName);
     setMaxCapacity(roomLimit);
-    if (!existingMemberByStoredId && !existingMemberByName) {
-      // fresh update
-      setMembers(data.members || []);
-    } else {
-      setMembers(currentMemberList);
-    }
+    setMembers(data.members || []);
   };
 
   const handleLogout = () => {
-    // Keeps dc_remembered_name so user doesn't need to retype name on next space join
     const savedName = localStorage.getItem('dc_remembered_name');
     localStorage.clear();
     if (savedName) localStorage.setItem('dc_remembered_name', savedName);
@@ -515,12 +574,47 @@ export default function App() {
     if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
   };
 
-  const handleModalPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || !e.target.files[0]) return;
-    setIsUploadingPhoto(true);
-    const permanentUrl = await uploadToSupabaseStorage(e.target.files[0]);
-    setIsUploadingPhoto(false);
-    if (permanentUrl) setNewOutfitPhotos((prev) => ({ ...prev, [selectedOutfitType]: permanentUrl }));
+  const handleMultipleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>, planId: string) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const targetPlan = plans.find((p) => p.id === planId);
+    const existing = targetPlan?.gallery_photos || [];
+
+    if (existing.length >= 15) {
+      alert('You have already reached the maximum of 15 pictures for this date!');
+      return;
+    }
+
+    const availableSlots = 15 - existing.length;
+    const selectedFiles = Array.from(e.target.files).slice(0, availableSlots);
+
+    setIsUploadingGallery(true);
+    setUploadProgressText(`Uploading ${selectedFiles.length} photo(s)...`);
+
+    try {
+      const uploadPromises = selectedFiles.map((file) => uploadToSupabaseStorage(file));
+      const results = await Promise.all(uploadPromises);
+      const uploadedUrls = results.filter(Boolean) as string[];
+
+      if (uploadedUrls.length > 0) {
+        const updatedList = [...existing, ...uploadedUrls];
+        setPlans((prev) => prev.map((p) => p.id === planId ? { ...p, gallery_photos: updatedList } : p));
+        await supabase.from('date_plans').update({ gallery_photos: updatedList }).eq('id', planId);
+      }
+    } catch {
+      alert('Error uploading some photos. Please try again.');
+    } finally {
+      setIsUploadingGallery(false);
+      setUploadProgressText('');
+      e.target.value = '';
+    }
+  };
+
+  const handleDeleteGalleryPhoto = async (planId: string, photoUrl: string) => {
+    const targetPlan = plans.find((p) => p.id === planId);
+    if (!targetPlan) return;
+    const updated = (targetPlan.gallery_photos || []).filter((url) => url !== photoUrl);
+    setPlans((prev) => prev.map((p) => p.id === planId ? { ...p, gallery_photos: updated } : p));
+    await supabase.from('date_plans').update({ gallery_photos: updated }).eq('id', planId);
   };
 
   const handleCreateDate = async (e: React.FormEvent) => {
@@ -539,14 +633,15 @@ export default function App() {
       lat: coords[0],
       lng: coords[1],
       dress_code: selectedOutfitType,
-      outfit_photos: newOutfitPhotos,
+      outfit_photos: {},
       completed: false,
       tasks: formattedTasks,
+      gallery_photos: [],
       budget_items: [],
     }]).select().single();
 
     if (data) {
-      setPlans((prev) => [...prev, { ...data, completed: false, tasks: formattedTasks, budgetItems: [] }]);
+      setPlans((prev) => [...prev, { ...data, completed: false, tasks: formattedTasks, gallery_photos: [], budgetItems: [] }]);
       setSelectedPlanId(data.id);
       setIsModalOpen(false);
       setNewTitle('');
@@ -666,13 +761,14 @@ export default function App() {
     await supabase.from('date_plans').update({ tasks: updated }).eq('id', currentPlan.id);
   };
 
+  // 50/50 Bill Splitter Logic
   const handleAddBudgetItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBudgetItem || !newBudgetCost || !currentPlan) return;
     const costNum = parseFloat(newBudgetCost);
     if (isNaN(costNum)) return;
 
-    const updated = [...(currentPlan.budgetItems || []), { id: Date.now(), item: newBudgetItem, cost: costNum, paidBy: newBudgetPaidBy || currentUserName }];
+    const updated = [...(currentPlan.budgetItems || []), { id: Date.now(), item: newBudgetItem, cost: costNum, paidBy: newBudgetPaidBy }];
     setNewBudgetItem('');
     setNewBudgetCost('');
     setPlans((prev) => prev.map((p) => (p.id === currentPlan.id ? { ...p, budgetItems: updated } : p)));
@@ -686,12 +782,28 @@ export default function App() {
     await supabase.from('date_plans').update({ budget_items: updated }).eq('id', currentPlan.id);
   };
 
+  // Wishlist Handling
   const handleAddBucketItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBucketTitle.trim() || !coupleId) return;
-    await supabase.from('bucket_items').insert([{ couple_id: coupleId, title: newBucketTitle.trim(), vibe: newBucketVibe, notes: newBucketNotes.trim() }]);
+    const { data } = await supabase.from('bucket_items').insert([{ couple_id: coupleId, title: newBucketTitle.trim(), vibe: newBucketVibe, notes: newBucketNotes.trim() }]).select().single();
+    if (data) setBucketList((prev) => [data, ...prev]);
     setNewBucketTitle('');
     setNewBucketNotes('');
+  };
+
+  const handleUpdateBucketItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBucketItem) return;
+
+    setBucketList((prev) => prev.map((item) => item.id === editingBucketItem.id ? editingBucketItem : item));
+    await supabase.from('bucket_items').update({
+      title: editingBucketItem.title,
+      vibe: editingBucketItem.vibe,
+      notes: editingBucketItem.notes
+    }).eq('id', editingBucketItem.id);
+
+    setEditingBucketItem(null);
   };
 
   const handleDeleteBucketItem = async (id: string) => {
@@ -740,15 +852,43 @@ export default function App() {
     return `${days} day${days > 1 ? 's' : ''} to go!`;
   };
 
+  // --- BOY & GIRL BILL CALCULATIONS WITH HIGH-TO-LOW SORTING ---
   const currentBudget = currentPlan?.budgetItems || [];
   const totalCost = currentBudget.reduce((acc, curr) => acc + curr.cost, 0);
+
+  const sortedBudgetItems = [...currentBudget].sort((a, b) => b.cost - a.cost);
+
+  const boyName = currentUserName || (members[0]?.name) || 'Boy';
+  const partnerMember = members.find((m) => m.name.toLowerCase() !== boyName.toLowerCase());
+  const girlName = partnerMember?.name || (members[1]?.name) || 'Girl';
+
+  const boyShare = currentBudget.reduce((acc, curr) => {
+    if (curr.paidBy === boyName) return acc + curr.cost;
+    if (curr.paidBy === '50/50') {
+      const count = members.length > 0 ? members.length : 2;
+      return acc + (curr.cost / count);
+    }
+    return acc;
+  }, 0);
+
+  const girlShare = currentBudget.reduce((acc, curr) => {
+    if (curr.paidBy === girlName) return acc + curr.cost;
+    if (curr.paidBy === '50/50') {
+      const count = members.length > 0 ? members.length : 2;
+      return acc + (curr.cost / count);
+    }
+    return acc;
+  }, 0);
 
   const otherMember = members.find((m) => m.id !== currentUserId && m.lat && m.lng);
   const coupleDistanceKm = (userCoords && otherMember && otherMember.lat && otherMember.lng)
     ? getDistanceKm(userCoords[0], userCoords[1], otherMember.lat, otherMember.lng)
     : null;
 
-  // LOGIN SCREEN (SMART RETURNING USER IDENTIFICATION)
+  const isScrapbookReady = historyPlans.length >= 2;
+  const albumDates = historyPlans.slice(0, 2);
+
+  // LOGIN SCREEN
   if (!coupleId) {
     return (
       <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center p-4">
@@ -864,7 +1004,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* AUTOMATIC RETURNING USER IDENTIFICATION */}
               {rememberedName ? (
                 <div className="p-3 bg-rose-50/70 border border-rose-100 rounded-xl flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -879,7 +1018,7 @@ export default function App() {
                       localStorage.removeItem('dc_remembered_name');
                       setJoinNameInput('');
                     }}
-                    className="text-[11px] text-rose-600 hover:underline font-semibold"
+                    className="text-[11px] text-rose-600 hover:underline font-semibold cursor-pointer"
                   >
                     Change
                   </button>
@@ -898,9 +1037,6 @@ export default function App() {
                       required
                     />
                   </div>
-                  <p className="text-[11px] text-stone-400 mt-1.5">
-                    First time joining? Just enter your name once!
-                  </p>
                 </div>
               )}
 
@@ -1020,7 +1156,7 @@ export default function App() {
             : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
-          <History size={13} /> Memories ({historyPlans.length})
+          <History size={13} /> Scrapbook & Album ({historyPlans.length})
         </button>
 
         <button
@@ -1040,13 +1176,13 @@ export default function App() {
             : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
             }`}
         >
-          <DollarSign size={13} /> Bill Splitter
+          <DollarSign size={13} /> Bill Splitter (50/50)
         </button>
       </div>
 
-      {/* ACTIVE DATE PLANNER TAB */}
+      {/* PLANNER TAB (CLEAN DROPDOWN SELECTOR WITH ARROW DOWN) */}
       {activeTab === 'planner' && (
-        <>
+        <div className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-4 sm:space-y-6">
           {upcomingPlans.length === 0 ? (
             <div className="max-w-xl mx-auto my-12 bg-white rounded-3xl p-8 sm:p-10 text-center border border-stone-200 shadow-sm">
               <div className="inline-flex p-4 bg-rose-50 rounded-full text-rose-500 mb-4">
@@ -1054,7 +1190,7 @@ export default function App() {
               </div>
               <h2 className="text-base sm:text-lg font-bold text-stone-900">No active date planned right now!</h2>
               <p className="text-xs text-stone-500 mt-1 mb-5">
-                You have finished all planned dates! Start by planning a new date together.
+                Plan a new date to unlock memories and photo albums together!
               </p>
               <button
                 onClick={() => setIsModalOpen(true)}
@@ -1064,27 +1200,28 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <div className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-4 sm:space-y-6">
+            <>
+              {/* DROPDOWN WITH ARROW DOWN ONLY */}
               {upcomingPlans.length > 1 && (
-                <div className="bg-white p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-stone-200 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
-                  <span className="text-xs font-bold text-stone-800">Switch Active Date:</span>
-                  <div className="flex flex-wrap gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-                    {upcomingPlans.map((plan) => {
-                      const isSelected = (currentPlan?.id === plan.id);
-                      return (
-                        <button
-                          key={plan.id}
-                          onClick={() => setSelectedPlanId(plan.id)}
-                          className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${isSelected
-                            ? 'bg-rose-500 text-white shadow-xs'
-                            : 'bg-stone-50 text-stone-600 border border-stone-200 hover:bg-stone-100'
-                            }`}
-                        >
-                          <Calendar size={11} />
-                          <span>{plan.title}</span>
-                        </button>
-                      );
-                    })}
+                <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <Calendar size={15} className="text-rose-500" />
+                    <span className="text-xs font-bold text-stone-800">Select Planned Date:</span>
+                  </div>
+
+                  <div className="relative w-full sm:w-auto">
+                    <select
+                      value={currentPlan?.id || ''}
+                      onChange={(e) => setSelectedPlanId(e.target.value)}
+                      className="w-full sm:w-80 appearance-none bg-rose-50/70 hover:bg-rose-100/70 text-rose-700 font-bold text-xs py-2 pl-3.5 pr-10 rounded-xl border border-rose-200 cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-rose-400 transition-colors"
+                    >
+                      {upcomingPlans.map((plan, i) => (
+                        <option key={plan.id} value={plan.id}>
+                          Date #{i + 1}: {plan.title} ({plan.date})
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={16} className="absolute right-3 top-2.5 text-rose-500 pointer-events-none" />
                   </div>
                 </div>
               )}
@@ -1093,7 +1230,6 @@ export default function App() {
                 <div className="space-y-4 sm:space-y-6">
                   {currentPlan && (
                     <>
-                      {/* Main Date Card */}
                       <div
                         onClick={() => handleOpenEditModal(currentPlan)}
                         className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200 shadow-sm hover:border-rose-300 hover:shadow-md transition-all cursor-pointer group relative"
@@ -1141,22 +1277,6 @@ export default function App() {
                           <span className="truncate">{currentPlan.locationName}</span>
                         </div>
 
-                        <div className="mt-3.5 p-2 bg-stone-50 rounded-2xl border border-stone-100 flex items-center gap-2.5">
-                          <img
-                            src={activeOutfitImage}
-                            alt={currentPlan.dressCode}
-                            className="w-12 h-12 rounded-xl object-cover border border-stone-200 flex-shrink-0 shadow-2xs"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[9px] uppercase tracking-wider font-semibold text-stone-400">Chosen Outfit</p>
-                            <p className="text-xs font-bold text-stone-800 truncate">{currentPlan.dressCode}</p>
-                            <p className="text-[10px] text-stone-500 truncate">{activeOutfitPreset.desc}</p>
-                          </div>
-                          <span className="p-1 bg-white rounded-full text-rose-500 shadow-2xs mr-1">
-                            <Sparkles size={12} />
-                          </span>
-                        </div>
-
                         <div className="mt-3.5 pt-3 border-t border-stone-100 flex items-center justify-between">
                           <a
                             href={`https://www.google.com/maps/dir/?api=1&destination=${currentPlan.lat},${currentPlan.lng}`}
@@ -1182,64 +1302,58 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Outfit Gallery */}
-                      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200 shadow-sm space-y-3 sm:space-y-4">
+                      {/* Multi-Photos Upload Section */}
+                      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200 shadow-sm space-y-3">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Shirt size={16} className="text-rose-500" />
-                            <h3 className="font-bold text-xs sm:text-sm text-stone-900">Outfit Inspiration</h3>
+                          <div>
+                            <h3 className="font-bold text-xs sm:text-sm text-stone-900">Date Pictures</h3>
+                            <p className="text-[10px] text-stone-400">
+                              {uploadProgressText || 'Upload up to 15 pictures (Auto-compressed)'}
+                            </p>
                           </div>
-                          <span className="text-[10px] sm:text-[11px] font-semibold text-rose-600 bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                            <Sparkles size={10} />
-                            {currentPlan.dressCode}
+                          <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">
+                            {(currentPlan.gallery_photos || []).length}/15
                           </span>
                         </div>
 
-                        <div className="relative overflow-hidden rounded-2xl border border-stone-200 aspect-[16/10] bg-stone-100 group shadow-inner">
-                          <img
-                            src={activeOutfitImage}
-                            alt={currentPlan.dressCode}
-                            className="w-full h-full object-cover transition-all duration-300"
-                          />
+                        <div className="grid grid-cols-3 gap-2">
+                          {(currentPlan.gallery_photos || []).map((imgUrl, i) => (
+                            <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-stone-200 group">
+                              <img src={imgUrl} alt="Date memory" className="w-full h-full object-cover" />
+                              <button
+                                onClick={() => handleDeleteGalleryPhoto(currentPlan.id, imgUrl)}
+                                className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                              >
+                                <X size={11} />
+                              </button>
+                            </div>
+                          ))}
 
-                          <div className="absolute top-2 right-2 flex items-center gap-1">
-                            <label
-                              className="p-2 bg-black/60 hover:bg-stone-900 text-white rounded-full transition-colors backdrop-blur-xs shadow cursor-pointer flex items-center justify-center"
-                              title="Upload outfit photo"
-                            >
-                              {isUploadingPhoto ? <Loader2 size={13} className="animate-spin text-rose-400" /> : <Camera size={13} />}
-                              <input type="file" accept="image/*" disabled={isUploadingPhoto} onChange={handleModalPhotoUpload} className="hidden" />
+                          {(currentPlan.gallery_photos || []).length < 15 && (
+                            <label className="aspect-square border-2 border-dashed border-stone-200 hover:border-rose-400 rounded-xl flex flex-col items-center justify-center cursor-pointer bg-stone-50/50 hover:bg-rose-50/20 transition-all">
+                              {isUploadingGallery ? (
+                                <Loader2 size={16} className="animate-spin text-rose-500" />
+                              ) : (
+                                <>
+                                  <ImagePlus size={18} className="text-rose-400 mb-0.5" />
+                                  <span className="text-[9px] font-bold text-stone-600">+ Add Pic</span>
+                                </>
+                              )}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                disabled={isUploadingGallery}
+                                onChange={(e) => handleMultipleGalleryUpload(e, currentPlan.id)}
+                                className="hidden"
+                              />
                             </label>
-                          </div>
-                        </div>
-
-                        <div>
-                          <p className="text-[10px] font-bold text-stone-400 mb-1.5 uppercase tracking-wider">Choose Vibe</p>
-                          <div className="flex flex-wrap gap-1">
-                            {outfitPresets.map((preset) => {
-                              const isSelected = currentPlan.dressCode === preset.label;
-                              return (
-                                <button
-                                  key={preset.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setPlans((prev) => prev.map((p) => p.id === currentPlan.id ? { ...p, dressCode: preset.label } : p));
-                                    supabase.from('date_plans').update({ dress_code: preset.label }).eq('id', currentPlan.id);
-                                  }}
-                                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all flex items-center gap-1 cursor-pointer ${isSelected ? 'bg-rose-500 text-white border-rose-500 shadow-2xs font-semibold' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
-                                    }`}
-                                >
-                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: preset.palette[1] }} />
-                                  {preset.label}
-                                </button>
-                              );
-                            })}
-                          </div>
+                          )}
                         </div>
                       </div>
 
                       {/* Checklist */}
-                      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200 shadow-sm space-y-2.5 sm:space-y-3">
+                      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200 shadow-sm space-y-2.5">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5">
                             <CheckSquare size={16} className="text-rose-500" />
@@ -1267,7 +1381,7 @@ export default function App() {
                         <form onSubmit={handleAddInlineTask} className="flex gap-1.5 pt-1.5 border-t border-stone-100">
                           <input
                             type="text"
-                            placeholder="e.g. Visit Church, Cafe, Arcade..."
+                            placeholder="Add stop or task..."
                             value={inlineTaskInput}
                             onChange={(e) => setInlineTaskInput(e.target.value)}
                             className="flex-1 px-3 py-1.5 rounded-xl border border-stone-200 text-xs focus:ring-2 focus:ring-rose-400"
@@ -1279,7 +1393,7 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Right Column: Weather, Roulette, Multi-User GPS Map */}
+                {/* Right Column: Accurate Forecast, Roulette, Multi-User GPS Map */}
                 {currentPlan && (
                   <div className="md:col-span-2 space-y-3.5 sm:space-y-4">
                     <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
@@ -1288,9 +1402,9 @@ export default function App() {
                           <CloudSun size={20} />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[9px] uppercase tracking-wider font-semibold text-stone-400 truncate">Weather</p>
+                          <p className="text-[9px] uppercase tracking-wider font-semibold text-stone-400 truncate">Destination Forecast</p>
                           <p className="text-xs sm:text-sm font-bold text-stone-800 truncate">
-                            {isWeatherLoading ? '...' : weatherInfo ? `${weatherInfo.temp}°C • Pleasant` : '28°C'}
+                            {isWeatherLoading ? 'Checking...' : weatherInfo ? `${weatherInfo.temp}°C • ${weatherInfo.description}` : '28°C • Clear Sky'}
                           </p>
                         </div>
                       </div>
@@ -1312,10 +1426,10 @@ export default function App() {
                     </div>
 
                     {/* LIVE GROUP MAP */}
-                    <div className="bg-white p-3 sm:p-4 rounded-3xl border border-stone-200 shadow-sm flex flex-col h-[380px] sm:h-[480px]">
+                    <div className="bg-white p-3 sm:p-4 rounded-3xl border border-stone-200 shadow-sm flex flex-col h-[400px] sm:h-[480px]">
                       <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2.5 px-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <h3 className="font-bold text-xs sm:text-sm">Live Location & Date Spot</h3>
+                          <h3 className="font-bold text-xs sm:text-sm">Live GPS & Date Spot</h3>
                           {members.map((m, idx) => (
                             m.lat && m.lng ? (
                               <span key={m.id} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border" style={{ color: memberColors[idx % memberColors.length], borderColor: memberColors[idx % memberColors.length] }}>
@@ -1345,7 +1459,6 @@ export default function App() {
                           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                           <MapFlyToController centerCoords={userCoords} />
 
-                          {/* Render all members up to 8 */}
                           {members.map((m, idx) => {
                             if (!m.lat || !m.lng) return null;
                             return (
@@ -1367,32 +1480,54 @@ export default function App() {
                   </div>
                 )}
               </main>
-            </div>
+            </>
           )}
-        </>
+        </div>
       )}
 
-      {/* ARCHIVE TAB */}
+      {/* SCRAPBOOK & PHOTO ALBUMS */}
       {activeTab === 'history' && (
-        <section className="max-w-5xl mx-auto mt-4 sm:mt-6">
-          <div className="flex justify-between items-center mb-4 sm:mb-6">
+        <section className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-2">
             <div>
               <h2 className="text-lg sm:text-xl font-bold text-stone-900 flex items-center gap-1.5">Our Date Scrapbook 💕</h2>
-              <p className="text-[11px] sm:text-xs text-stone-500">Preserved polaroids of our story</p>
+              <p className="text-[11px] sm:text-xs text-stone-500">Every single date, preserved like polaroids of our story</p>
             </div>
-            <span className="text-xs font-semibold px-2.5 py-1 bg-rose-100 text-rose-700 rounded-full">{historyPlans.length} Finished</span>
+
+            {isScrapbookReady && (
+              <button
+                onClick={() => {
+                  setActiveStoryPage(0);
+                  setIsStorybookModalOpen(true);
+                }}
+                className="bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white px-4 py-2 rounded-2xl text-xs font-bold shadow-md flex items-center gap-2 transition-transform active:scale-95 cursor-pointer self-start sm:self-auto"
+              >
+                <BookOpen size={16} />
+                <span>Open Interactive Flip-Book Album ✨</span>
+              </button>
+            )}
           </div>
+
+          {historyPlans.length === 1 && (
+            <div className="bg-rose-50 border border-rose-200 p-3.5 rounded-2xl text-xs text-rose-800 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Sparkles size={16} className="text-rose-500" />
+                1 date completed! Complete 1 more date to automatically unlock your **Interactive Flip-Book Scrapbook Album**!
+              </span>
+              <span className="font-bold text-rose-600">1/2 Dates</span>
+            </div>
+          )}
 
           {historyPlans.length === 0 ? (
             <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border border-stone-200 shadow-sm">
               <History size={32} className="mx-auto text-stone-300 mb-2" />
               <h3 className="font-bold text-xs sm:text-sm text-stone-800">No date memories archived yet</h3>
-              <p className="text-xs text-stone-500 mt-1">When you finish a date, click "Mark Done" in the planner to keep it here!</p>
+              <p className="text-xs text-stone-500 mt-1">Complete dates to automatically assemble your interactive polaroid photo book!</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
               {historyPlans.map((plan) => {
-                const memoryDisplayPhoto = plan.memory_photo || plan.outfit_photos?.[plan.dressCode] || 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=800&auto=format&fit=crop&q=80';
+                const memoryDisplayPhoto = plan.memory_photo || (plan.gallery_photos && plan.gallery_photos[0]) || plan.outfit_photos?.[plan.dressCode] || 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=800&auto=format&fit=crop&q=80';
                 return (
                   <div key={plan.id} className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200/90 shadow-md hover:shadow-xl transition-all duration-300 relative group flex flex-col justify-between">
                     <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-16 sm:w-20 h-5 sm:h-6 bg-amber-100/80 border border-amber-200/60 rounded-xs -rotate-2 shadow-2xs pointer-events-none" />
@@ -1404,7 +1539,7 @@ export default function App() {
                       <div className="bg-stone-50 p-3 sm:p-4 pb-4 sm:pb-6 rounded-2xl border border-stone-200/80 shadow-inner relative group/photo">
                         <div className="relative aspect-[4/3] rounded-xl overflow-hidden bg-stone-200">
                           <img src={memoryDisplayPhoto} alt={plan.title} className="w-full h-full object-cover group-hover/photo:scale-105 transition-transform duration-500" />
-                          <label className="absolute bottom-2 right-2 p-1.5 sm:p-2 bg-black/60 hover:bg-stone-900 text-white rounded-full transition-colors backdrop-blur-xs cursor-pointer flex items-center justify-center">
+                          <label className="absolute bottom-2 right-2 p-1.5 sm:p-2 bg-black/60 hover:bg-stone-900 text-white rounded-full transition-colors shadow backdrop-blur-xs cursor-pointer flex items-center justify-center">
                             {isUploadingMemoryPhoto ? <Loader2 size={13} className="animate-spin text-rose-400" /> : <Camera size={13} />}
                             <input type="file" accept="image/*" disabled={isUploadingMemoryPhoto} onChange={(e) => handleMemoryPhotoUpload(e, plan.id)} className="hidden" />
                           </label>
@@ -1447,7 +1582,7 @@ export default function App() {
         </section>
       )}
 
-      {/* BUCKET LIST TAB */}
+      {/* WISHLIST TAB */}
       {activeTab === 'bucket' && (
         <section className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-4 sm:space-y-6">
           <div className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm">
@@ -1499,11 +1634,23 @@ export default function App() {
                   <div>
                     <div className="flex justify-between items-start mb-1.5">
                       <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">{item.vibe}</span>
-                      <button onClick={() => handleDeleteBucketItem(item.id)} className="text-stone-300 hover:text-rose-500 p-0.5 cursor-pointer">✕</button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setEditingBucketItem(item)}
+                          className="text-stone-400 hover:text-stone-700 p-1 rounded-lg hover:bg-stone-100 transition-colors cursor-pointer"
+                          title="Edit wishlist idea"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button onClick={() => handleDeleteBucketItem(item.id)} className="text-stone-300 hover:text-rose-500 p-1 cursor-pointer" title="Delete">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </div>
                     <h4 className="font-bold text-sm text-stone-900">{item.title}</h4>
                     <p className="text-xs text-stone-500 mt-1">{item.notes}</p>
                   </div>
+
                   <button
                     onClick={() => {
                       setNewTitle(item.title);
@@ -1523,15 +1670,15 @@ export default function App() {
         </section>
       )}
 
-      {/* BUDGET TAB */}
+      {/* BILL SPLITTER TAB */}
       {activeTab === 'budget' && (
         <section className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-4 sm:space-y-6">
           <div className="bg-white p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-stone-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-2">
               <DollarSign size={18} className="text-rose-500" />
               <div>
-                <h3 className="text-xs sm:text-sm font-bold text-stone-900">Group Bill Splitter ({members.length} Members)</h3>
-                <p className="text-[10px] text-stone-500">Pick planned date to split expenses</p>
+                <h3 className="text-xs sm:text-sm font-bold text-stone-900">Couple Bill & Budget Splitter</h3>
+                <p className="text-[10px] text-stone-500">Breakdown of how much {boyName} and {girlName} will pay or bring</p>
               </div>
             </div>
 
@@ -1558,12 +1705,35 @@ export default function App() {
             </div>
           ) : (
             <>
-              <div className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm">
-                <div className="mb-4">
-                  <p className="text-xs font-bold text-stone-400 uppercase">Total Date Budget</p>
-                  <p className="text-xl sm:text-2xl font-black text-stone-900">₱{totalCost.toLocaleString()}</p>
+              {/* SUMMARY CARDS */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div className="bg-white p-5 rounded-3xl border border-stone-200 shadow-sm text-center">
+                  <p className="text-xs font-bold text-stone-400 uppercase tracking-wider">Total Spent</p>
+                  <p className="text-2xl sm:text-3xl font-black text-stone-900 mt-1">₱{totalCost.toLocaleString()}</p>
+                  <p className="text-[11px] text-stone-400 mt-0.5">{currentBudget.length} expense item(s)</p>
                 </div>
 
+                <div className="bg-white p-5 rounded-3xl border border-blue-100 shadow-sm text-center relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500" />
+                  <p className="text-xs font-bold text-blue-600 uppercase tracking-wider">{boyName} will bring / pay</p>
+                  <p className="text-2xl sm:text-3xl font-black text-blue-600 mt-1">₱{boyShare.toLocaleString()}</p>
+                  <p className="text-[11px] text-blue-400 mt-0.5">
+                    {totalCost > 0 ? `${Math.round((boyShare / totalCost) * 100)}% of total budget` : '0%'}
+                  </p>
+                </div>
+
+                <div className="bg-white p-5 rounded-3xl border border-rose-100 shadow-sm text-center relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-rose-500" />
+                  <p className="text-xs font-bold text-rose-600 uppercase tracking-wider">{girlName} will bring / pay</p>
+                  <p className="text-2xl sm:text-3xl font-black text-rose-600 mt-1">₱{girlShare.toLocaleString()}</p>
+                  <p className="text-[11px] text-rose-400 mt-0.5">
+                    {totalCost > 0 ? `${Math.round((girlShare / totalCost) * 100)}% of total budget` : '0%'}
+                  </p>
+                </div>
+              </div>
+
+              {/* ADD EXPENSE SECTION */}
+              <div className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm">
                 <h3 className="font-bold text-xs sm:text-sm text-stone-900 mb-3">Add Expense for "{currentPlan.title}"</h3>
                 <form onSubmit={handleAddBudgetItem} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
                   <input
@@ -1582,44 +1752,283 @@ export default function App() {
                     className="px-3 py-2 rounded-xl border border-stone-200 text-xs"
                     required
                   />
+
                   <select
                     value={newBudgetPaidBy}
                     onChange={(e) => setNewBudgetPaidBy(e.target.value)}
-                    className="px-3 py-2 rounded-xl border border-stone-200 text-xs cursor-pointer"
+                    className="px-3 py-2 rounded-xl border border-stone-200 text-xs cursor-pointer font-semibold"
                   >
-                    {members.map((m) => (
-                      <option key={m.id} value={m.name}>Paid by {m.name}</option>
-                    ))}
+                    <option value="50/50">🤝 Split 50 / 50 (Equally)</option>
+                    <option value={boyName}>Treated / Paid by {boyName}</option>
+                    <option value={girlName}>Treated / Paid by {girlName}</option>
                   </select>
+
                   <button type="submit" className="py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-semibold cursor-pointer">
                     Add Expense
                   </button>
                 </form>
 
-                <div className="mt-4 divide-y divide-stone-100">
-                  {currentBudget.length === 0 ? (
-                    <p className="text-xs text-stone-400 text-center py-4">No expenses added yet.</p>
+                <div className="mt-6 border border-stone-200 rounded-2xl overflow-hidden shadow-2xs">
+                  <div className="bg-stone-50 px-4 py-2.5 border-b border-stone-200 flex justify-between items-center">
+                    <span className="text-xs font-bold text-stone-800">
+                      Expense Breakdown (Sorted: Highest to Lowest)
+                    </span>
+                    <span className="text-[11px] text-stone-400 font-medium">All figures in PHP (₱)</span>
+                  </div>
+
+                  {sortedBudgetItems.length === 0 ? (
+                    <p className="text-xs text-stone-400 text-center py-6">No expenses added yet for this date.</p>
                   ) : (
-                    currentBudget.map((b) => (
-                      <div key={b.id} className="py-2.5 flex items-center justify-between text-xs px-1">
-                        <div>
-                          <p className="font-semibold text-stone-800 text-xs">{b.item}</p>
-                          <span className="text-[10px] text-stone-400">Paid by: {b.paidBy}</span>
-                        </div>
-                        <div className="flex items-center gap-2.5">
-                          <span className="font-bold text-stone-900 text-xs">₱{b.cost.toLocaleString()}</span>
-                          <button onClick={() => handleDeleteBudgetItem(b.id)} className="text-stone-400 hover:text-rose-600 cursor-pointer">
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </div>
-                    ))
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-stone-100 bg-stone-50/60 text-stone-500 font-semibold text-[11px]">
+                            <th className="py-2.5 px-3.5">Expense Item</th>
+                            <th className="py-2.5 px-3.5">Cost</th>
+                            <th className="py-2.5 px-3.5">Payment Mode</th>
+                            <th className="py-2.5 px-3.5 text-blue-600 font-bold">{boyName} Pays</th>
+                            <th className="py-2.5 px-3.5 text-rose-600 font-bold">{girlName} Pays</th>
+                            <th className="py-2.5 px-2 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100 text-stone-700">
+                          {sortedBudgetItems.map((b) => {
+                            let itemBoyCost = 0;
+                            let itemGirlCost = 0;
+
+                            if (b.paidBy === boyName) {
+                              itemBoyCost = b.cost;
+                            } else if (b.paidBy === girlName) {
+                              itemGirlCost = b.cost;
+                            } else {
+                              itemBoyCost = b.cost / 2;
+                              itemGirlCost = b.cost / 2;
+                            }
+
+                            return (
+                              <tr key={b.id} className="hover:bg-stone-50/80 transition-colors">
+                                <td className="py-2.5 px-3.5 font-semibold text-stone-900">{b.item}</td>
+                                <td className="py-2.5 px-3.5 font-bold">₱{b.cost.toLocaleString()}</td>
+                                <td className="py-2.5 px-3.5">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${b.paidBy === '50/50'
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    : b.paidBy === boyName
+                                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                      : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    }`}>
+                                    {b.paidBy === '50/50' ? '🤝 Split 50/50' : b.paidBy}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3.5 font-bold text-blue-600">₱{itemBoyCost.toLocaleString()}</td>
+                                <td className="py-2.5 px-3.5 font-bold text-rose-600">₱{itemGirlCost.toLocaleString()}</td>
+                                <td className="py-2.5 px-2 text-right">
+                                  <button onClick={() => handleDeleteBudgetItem(b.id)} className="text-stone-300 hover:text-rose-600 p-1 cursor-pointer">
+                                    <Trash2 size={13} />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               </div>
             </>
           )}
         </section>
+      )}
+
+      {/* INTERACTIVE CUTE FLIP-BOOK SCRAPBOOK */}
+      {isStorybookModalOpen && (
+        <div className="fixed inset-0 bg-stone-900/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 z-[99999]" onClick={() => setIsStorybookModalOpen(false)}>
+          <div
+            className="w-full max-w-4xl bg-[#F5EFE6] rounded-3xl shadow-2xl border-4 border-[#E8DFD1] p-5 sm:p-8 relative overflow-hidden flex flex-col pointer-events-auto"
+            onClick={(e) => e.stopPropagation()}
+            style={{ backgroundImage: 'radial-gradient(#E8DFD1 1px, transparent 0)', backgroundSize: '24px 24px' }}
+          >
+            {/* Top Toolbar */}
+            <div className="flex justify-between items-center pb-4 border-b border-stone-300">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-rose-500 rounded-full text-white shadow-sm">
+                  <BookOpen size={18} />
+                </span>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-stone-800">Our Interactive Date Album</h2>
+                  <p className="text-[11px] text-stone-500 font-mono">
+                    Chapter {activeStoryPage + 1} of {albumDates.length}: {albumDates[activeStoryPage]?.title}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="px-3.5 py-1.5 bg-stone-800 hover:bg-rose-500 text-white rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                >
+                  <Download size={13} /> Download / Print Book
+                </button>
+                <button onClick={() => setIsStorybookModalOpen(false)} className="p-1.5 text-stone-400 hover:text-stone-700 rounded-full cursor-pointer">
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Interactive Binder Page */}
+            {albumDates[activeStoryPage] && (
+              <div className="py-6 flex-1 overflow-y-auto max-h-[70vh] relative px-2 sm:px-6">
+                <div className="w-24 h-6 bg-rose-200/80 border border-rose-300/60 rounded-xs -rotate-2 mx-auto shadow-2xs mb-2" />
+
+                <div className="text-center mb-6">
+                  <span className="text-[10px] font-mono tracking-widest text-rose-500 uppercase bg-white px-3 py-1 rounded-full border border-rose-200 shadow-2xs">
+                    CHAPTER 0{activeStoryPage + 1} • {albumDates[activeStoryPage].date}
+                  </span>
+                  <h3 className="text-2xl font-black text-stone-900 mt-2 tracking-tight">
+                    {albumDates[activeStoryPage].title}
+                  </h3>
+                  <p className="text-xs text-stone-500 mt-0.5 flex items-center justify-center gap-1">
+                    <MapPin size={12} className="text-rose-500" />
+                    {albumDates[activeStoryPage].locationName}
+                  </p>
+
+                  {albumDates[activeStoryPage].bestMemory && (
+                    <div className="mt-3 max-w-md mx-auto p-3 bg-amber-50/90 rounded-2xl border border-amber-200 text-xs italic text-stone-700 shadow-2xs">
+                      “{albumDates[activeStoryPage].bestMemory}”
+                    </div>
+                  )}
+                </div>
+
+                {/* Cute Polaroid Grid */}
+                {(() => {
+                  const pics = [
+                    albumDates[activeStoryPage].memory_photo,
+                    ...(albumDates[activeStoryPage].gallery_photos || [])
+                  ].filter(Boolean) as string[];
+
+                  if (pics.length === 0) {
+                    return (
+                      <div className="p-12 text-center bg-white/70 rounded-3xl border border-stone-300 text-stone-400 text-xs">
+                        No polaroid snapshots uploaded for this chapter yet.
+                      </div>
+                    );
+                  }
+
+                  const rotations = ['rotate-1', '-rotate-2', 'rotate-2', '-rotate-1', 'rotate-3', '-rotate-3'];
+
+                  return (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 pt-2">
+                      {pics.map((picUrl, idx) => (
+                        <div
+                          key={idx}
+                          className={`bg-white p-3 pb-6 rounded-lg shadow-md hover:shadow-xl transition-all hover:scale-105 duration-300 border border-stone-200/80 relative ${rotations[idx % rotations.length]}`}
+                        >
+                          <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-14 h-4 bg-amber-100/90 border border-amber-200/70 rounded-2xs shadow-2xs" />
+
+                          <div className="aspect-[4/3] rounded overflow-hidden bg-stone-100 border border-stone-200 shadow-inner">
+                            <img src={picUrl} alt="Memory" className="w-full h-full object-cover" />
+                          </div>
+
+                          <div className="mt-3 text-center">
+                            <p className="text-[10px] font-mono font-bold text-stone-500 tracking-wider uppercase">
+                              MEMORY #{idx + 1}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Interactive Page Navigation */}
+            <div className="pt-4 border-t border-stone-300 flex items-center justify-between">
+              <button
+                onClick={() => setActiveStoryPage((prev) => Math.max(0, prev - 1))}
+                disabled={activeStoryPage === 0}
+                className="px-4 py-2 bg-white hover:bg-stone-50 disabled:opacity-30 border border-stone-300 text-stone-700 rounded-2xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+              >
+                <ChevronLeft size={16} /> Prev Date
+              </button>
+
+              <div className="flex gap-1.5">
+                {albumDates.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setActiveStoryPage(i)}
+                    className={`w-2.5 h-2.5 rounded-full transition-all cursor-pointer ${activeStoryPage === i ? 'bg-rose-500 scale-125' : 'bg-stone-300'
+                      }`}
+                  />
+                ))}
+              </div>
+
+              <button
+                onClick={() => setActiveStoryPage((prev) => Math.min(albumDates.length - 1, prev + 1))}
+                disabled={activeStoryPage === albumDates.length - 1}
+                className="px-4 py-2 bg-white hover:bg-stone-50 disabled:opacity-30 border border-stone-300 text-stone-700 rounded-2xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+              >
+                Next Date <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT WISHLIST MODAL */}
+      {editingBucketItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-[9999]" onClick={() => setEditingBucketItem(null)}>
+          <div className="bg-white w-full max-w-md rounded-3xl p-5 sm:p-6 shadow-2xl border border-stone-200 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-base font-bold text-stone-900">Edit Wishlist Idea</h2>
+              <button onClick={() => setEditingBucketItem(null)} className="p-1 text-stone-400 hover:text-stone-700 rounded-full cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateBucketItem} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">Title</label>
+                <input
+                  type="text"
+                  value={editingBucketItem.title}
+                  onChange={(e) => setEditingBucketItem({ ...editingBucketItem, title: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs focus:ring-2 focus:ring-rose-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">Theme / Vibe</label>
+                <select
+                  value={editingBucketItem.vibe}
+                  onChange={(e) => setEditingBucketItem({ ...editingBucketItem, vibe: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs cursor-pointer"
+                >
+                  <option>Cozy & Romantic</option>
+                  <option>Chill & Outdoor</option>
+                  <option>Fancy Dinner</option>
+                  <option>Fun & Adventurous</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">Notes</label>
+                <textarea
+                  value={editingBucketItem.notes}
+                  onChange={(e) => setEditingBucketItem({ ...editingBucketItem, notes: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs h-20 focus:ring-2 focus:ring-rose-500"
+                  placeholder="Optional notes or must-try food..."
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setEditingBucketItem(null)} className="px-3.5 py-1.5 text-xs text-stone-600 cursor-pointer">Cancel</button>
+                <button type="submit" className="px-4 py-1.5 bg-rose-500 text-white rounded-full text-xs font-bold shadow-xs cursor-pointer">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* CREATE DATE MODAL */}
@@ -1709,8 +2118,8 @@ export default function App() {
 
               <div className="flex justify-end gap-2 pt-1">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-3.5 py-2 text-xs text-stone-600 hover:bg-stone-100 rounded-xl cursor-pointer">Cancel</button>
-                <button type="submit" disabled={isUploadingPhoto} className="px-5 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-full text-xs font-bold shadow-xs flex items-center gap-1 cursor-pointer">
-                  {isUploadingPhoto ? 'Uploading...' : 'Save Date'}
+                <button type="submit" disabled={isUploadingGallery} className="px-5 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-full text-xs font-bold shadow-xs flex items-center gap-1 cursor-pointer">
+                  Save Date
                 </button>
               </div>
             </form>
@@ -1718,7 +2127,7 @@ export default function App() {
         </div>
       )}
 
-      {/* EDIT MODAL */}
+      {/* EDIT DATE MODAL */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-[9999]" onClick={(e) => { if (e.target === e.currentTarget) setIsEditModalOpen(false); }}>
           <div className="bg-white w-full max-w-lg rounded-3xl p-5 sm:p-6 shadow-2xl border border-stone-200 max-h-[90vh] overflow-y-auto relative z-[10000] pointer-events-auto" onClick={(e) => e.stopPropagation()}>
@@ -1790,7 +2199,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1">Upload Date Photo (Polaroid Memory)</label>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">Upload Cover Photo (Polaroid Memory)</label>
                 {finishMemoryPhoto ? (
                   <div className="relative rounded-2xl overflow-hidden aspect-[16/9] border border-stone-200 group">
                     <img src={finishMemoryPhoto} alt="Memory preview" className="w-full h-full object-cover" />
@@ -1803,7 +2212,7 @@ export default function App() {
                     {isUploadingMemoryPhoto ? <Loader2 size={22} className="animate-spin text-rose-500" /> : (
                       <>
                         <ImagePlus size={22} className="text-rose-400 mb-1" />
-                        <span className="text-xs font-bold text-stone-700">Add a selfie or photo from the date!</span>
+                        <span className="text-xs font-bold text-stone-700">Add cover selfie or photo!</span>
                         <span className="text-[10px] text-stone-400 mt-0.5">Click to choose image</span>
                       </>
                     )}
