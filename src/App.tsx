@@ -5,7 +5,7 @@ import {
   Heart, Calendar, MapPin, Plus, Shirt, CheckSquare, ExternalLink,
   Navigation, Sparkles, Trash2, Camera, LogOut, User,
   Pencil, CloudSun, Dices, Clock, History, BookmarkPlus,
-  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, X, Loader2, ImagePlus, KeyRound, Radio, Wand2, Download, BookOpen, ChevronLeft, ChevronRight, ChevronDown
+  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, X, Loader2, ImagePlus, KeyRound, Radio, Wand2, Download, BookOpen, ChevronLeft, ChevronRight, ChevronDown, UserMinus, Crown
 } from 'lucide-react';
 import './utils/leafletIcons';
 import { supabase } from './supabase';
@@ -239,6 +239,8 @@ export default function App() {
   const [spaceCode, setSpaceCode] = useState<string | null>(() => localStorage.getItem('dc_space_code'));
   const [currentUserId, setCurrentUserId] = useState<string>(() => localStorage.getItem('dc_user_id') || '');
   const [currentUserName, setCurrentUserName] = useState<string>(() => localStorage.getItem('dc_user_name') || '');
+  const [creatorName, setCreatorName] = useState<string>(() => localStorage.getItem('dc_creator_name') || '');
+  const [isCreator, setIsCreator] = useState<boolean>(() => localStorage.getItem('dc_is_creator') === 'true');
   const [members, setMembers] = useState<Member[]>([]);
   const [maxCapacity, setMaxCapacity] = useState<number>(2);
 
@@ -369,8 +371,26 @@ export default function App() {
   const fetchSpaceDetails = async (cId: string) => {
     const { data } = await supabase.from('couples').select('*').eq('id', cId).single();
     if (data) {
-      setMembers(data.members || []);
+      const memberList: Member[] = data.members || [];
+      const spaceCreator = data.user1_name || '';
+
+      setMembers(memberList);
       setMaxCapacity(data.max_members || 2);
+      setCreatorName(spaceCreator);
+      localStorage.setItem('dc_creator_name', spaceCreator);
+
+      // Verify creator role accurately
+      const myName = localStorage.getItem('dc_user_name') || currentUserName;
+      const amICreator = spaceCreator.trim().toLowerCase() === myName.trim().toLowerCase();
+      setIsCreator(amICreator);
+      localStorage.setItem('dc_is_creator', amICreator ? 'true' : 'false');
+
+      // Check if current user was kicked out
+      const stillInSpace = memberList.some((m) => m.id === currentUserId || m.name.toLowerCase() === myName.toLowerCase());
+      if (!stillInSpace && currentUserId && !amICreator) {
+        alert('You have been removed from this space by the creator.');
+        handleLogout();
+      }
     }
   };
 
@@ -400,7 +420,7 @@ export default function App() {
   };
 
   const fetchBucketList = async (cId: string) => {
-    const { data } = await supabase.from('bucket_items').select('*').eq('couple_id', cId).order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('bucket_items').select('*').eq('couple_id', cId).order('created_at', { ascending: false });
     if (data) setBucketList(data);
   };
 
@@ -417,8 +437,23 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'date_plans', filter: `couple_id=eq.${coupleId}` }, () => fetchDatePlans(coupleId))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bucket_items', filter: `couple_id=eq.${coupleId}` }, () => fetchBucketList(coupleId))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'couples', filter: `id=eq.${coupleId}` }, (payload: any) => {
-        setMembers(payload.new.members || []);
+        const updatedMembers: Member[] = payload.new.members || [];
+        const spaceCreator = payload.new.user1_name || creatorName;
+
+        setMembers(updatedMembers);
         setMaxCapacity(payload.new.max_members || 2);
+        setCreatorName(spaceCreator);
+
+        const myName = localStorage.getItem('dc_user_name') || currentUserName;
+        const amICreator = spaceCreator.trim().toLowerCase() === myName.trim().toLowerCase();
+        setIsCreator(amICreator);
+
+        // Real-time kick detection
+        const stillInSpace = updatedMembers.some((m) => m.id === currentUserId || m.name.toLowerCase() === myName.toLowerCase());
+        if (!stillInSpace && currentUserId && !amICreator) {
+          alert('You have been removed from this space by the creator.');
+          handleLogout();
+        }
       })
       .subscribe();
 
@@ -430,7 +465,6 @@ export default function App() {
 
   const upcomingPlans = plans.filter((p) => !p.completed);
   const historyPlans = plans.filter((p) => Boolean(p.completed));
-
   const currentPlan = upcomingPlans.find((p) => p.id === selectedPlanId) || upcomingPlans[0] || null;
 
   // Accurate Live Weather Fetching using WMO code
@@ -487,11 +521,15 @@ export default function App() {
       localStorage.setItem('dc_user_id', myId);
       localStorage.setItem('dc_user_name', myName);
       localStorage.setItem('dc_remembered_name', myName);
+      localStorage.setItem('dc_creator_name', myName);
+      localStorage.setItem('dc_is_creator', 'true');
 
       setCoupleId(data.id);
       setSpaceCode(data.space_code);
       setCurrentUserId(myId);
       setCurrentUserName(myName);
+      setCreatorName(myName);
+      setIsCreator(true);
       setMembers(initialMembers);
       setMaxCapacity(maxMembersInput);
     }
@@ -514,6 +552,7 @@ export default function App() {
 
     const currentMemberList: Member[] = data.members || [];
     const roomLimit = data.max_members || 2;
+    const spaceCreator = data.user1_name || '';
     const storedUserId = localStorage.getItem('dc_user_id');
     const existingMemberByStoredId = currentMemberList.find((m) => m.id === storedUserId);
     const savedName = rememberedName || joinNameInput.trim();
@@ -545,18 +584,47 @@ export default function App() {
       setMembers(updatedMemberList);
     }
 
+    // Determine if joining user is the creator
+    const amICreator = spaceCreator.trim().toLowerCase() === activeUserName.trim().toLowerCase();
+
     localStorage.setItem('dc_couple_id', data.id);
     localStorage.setItem('dc_space_code', data.space_code);
     localStorage.setItem('dc_user_id', activeUserId || '');
     localStorage.setItem('dc_user_name', activeUserName);
     localStorage.setItem('dc_remembered_name', activeUserName);
+    localStorage.setItem('dc_creator_name', spaceCreator);
+    localStorage.setItem('dc_is_creator', amICreator ? 'true' : 'false');
 
     setCoupleId(data.id);
     setSpaceCode(data.space_code);
     setCurrentUserId(activeUserId || '');
     setCurrentUserName(activeUserName);
+    setCreatorName(spaceCreator);
+    setIsCreator(amICreator);
     setMaxCapacity(roomLimit);
     setMembers(data.members || []);
+  };
+
+  // Creator kick/remove member function
+  const handleRemoveMember = async (memberToRemove: Member) => {
+    if (!coupleId || !isCreator) {
+      alert('Only the creator can remove members.');
+      return;
+    }
+
+    const isTargetCreator = memberToRemove.name.trim().toLowerCase() === creatorName.trim().toLowerCase();
+    if (isTargetCreator) {
+      alert('You cannot remove the space creator.');
+      return;
+    }
+
+    const confirmKick = window.confirm(`Are you sure you want to remove "${memberToRemove.name}" from this space?`);
+    if (!confirmKick) return;
+
+    const updated = members.filter((m) => m.id !== memberToRemove.id && m.name !== memberToRemove.name);
+    setMembers(updated);
+
+    await supabase.from('couples').update({ members: updated }).eq('id', coupleId);
   };
 
   const handleLogout = () => {
@@ -568,6 +636,8 @@ export default function App() {
     setSpaceCode(null);
     setCurrentUserId('');
     setCurrentUserName('');
+    setCreatorName('');
+    setIsCreator(false);
     setMembers([]);
     setPlans([]);
     setBucketList([]);
@@ -852,10 +922,9 @@ export default function App() {
     return `${days} day${days > 1 ? 's' : ''} to go!`;
   };
 
-  // --- BOY & GIRL BILL CALCULATIONS WITH HIGH-TO-LOW SORTING ---
+  // Boy & Girl Bill Calculations
   const currentBudget = currentPlan?.budgetItems || [];
   const totalCost = currentBudget.reduce((acc, curr) => acc + curr.cost, 0);
-
   const sortedBudgetItems = [...currentBudget].sort((a, b) => b.cost - a.cost);
 
   const boyName = currentUserName || (members[0]?.name) || 'Boy';
@@ -1070,7 +1139,9 @@ export default function App() {
                   <Users size={11} /> {members.length}/{maxCapacity} Members
                 </span>
               </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-stone-500 mt-0.5">
+
+              {/* Creator display & Space Code */}
+              <div className="flex items-center gap-2 text-[11px] text-stone-500 mt-0.5 flex-wrap">
                 <span>Code: <strong className="font-mono text-stone-800">{spaceCode}</strong></span>
                 <button
                   onClick={() => {
@@ -1082,6 +1153,11 @@ export default function App() {
                 >
                   <Copy size={11} />
                 </button>
+                <span>•</span>
+                <span className="inline-flex items-center gap-1 text-stone-600 font-medium bg-stone-100 px-2 py-0.5 rounded-md">
+                  <Crown size={11} className="text-amber-500" />
+                  Creator: <strong className="text-stone-800">{creatorName || 'Admin'}</strong>
+                </span>
               </div>
             </div>
           </div>
@@ -1122,19 +1198,38 @@ export default function App() {
         </div>
       </header>
 
-      {/* Connected Members Badges */}
-      <div className="max-w-5xl mx-auto mt-2 flex items-center gap-1.5 overflow-x-auto py-1">
-        <span className="text-[11px] text-stone-400 font-semibold mr-1">In this space:</span>
-        {members.map((m, idx) => (
-          <span
-            key={m.id}
-            className="px-2.5 py-0.5 rounded-full text-[11px] font-bold border flex items-center gap-1 shadow-2xs"
-            style={{ borderColor: memberColors[idx % memberColors.length], color: memberColors[idx % memberColors.length], backgroundColor: '#fff' }}
-          >
-            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: memberColors[idx % memberColors.length] }}></span>
-            {m.name} {m.id === currentUserId ? '(You)' : ''}
-          </span>
-        ))}
+      {/* Connected Members Badges with Direct Kick / Remove Button */}
+      <div className="max-w-5xl mx-auto mt-2.5 flex items-center gap-2 overflow-x-auto py-1">
+        <span className="text-[11px] text-stone-400 font-semibold mr-0.5">In this space:</span>
+        {members.map((m, idx) => {
+          const isTargetCreator = m.name.trim().toLowerCase() === creatorName.trim().toLowerCase();
+          const isSelf = m.id === currentUserId || m.name.toLowerCase() === currentUserName.toLowerCase();
+
+          return (
+            <span
+              key={m.id}
+              className="px-2.5 py-1 rounded-full text-[11px] font-bold border flex items-center gap-1.5 shadow-2xs"
+              style={{ borderColor: memberColors[idx % memberColors.length], color: memberColors[idx % memberColors.length], backgroundColor: '#fff' }}
+            >
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: memberColors[idx % memberColors.length] }}></span>
+              <span>
+                {m.name} {isSelf ? '(You)' : ''} {isTargetCreator ? '👑' : ''}
+              </span>
+
+              {/* KICK BUTTON: Only the Creator can see and click this for other members */}
+              {isCreator && !isTargetCreator && (
+                <button
+                  type="button"
+                  onClick={() => handleRemoveMember(m)}
+                  className="p-0.5 hover:bg-rose-100 text-rose-500 rounded-full transition-colors cursor-pointer ml-1"
+                  title={`Kick / Remove ${m.name} from space`}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </span>
+          );
+        })}
       </div>
 
       {/* Navigation Tabs */}
@@ -1180,7 +1275,7 @@ export default function App() {
         </button>
       </div>
 
-      {/* PLANNER TAB (CLEAN DROPDOWN SELECTOR WITH ARROW DOWN) */}
+      {/* PLANNER TAB */}
       {activeTab === 'planner' && (
         <div className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-4 sm:space-y-6">
           {upcomingPlans.length === 0 ? (
@@ -1201,7 +1296,7 @@ export default function App() {
             </div>
           ) : (
             <>
-              {/* DROPDOWN WITH ARROW DOWN ONLY */}
+              {/* Dropdown with arrow down for multiple dates */}
               {upcomingPlans.length > 1 && (
                 <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
                   <div className="flex items-center gap-2">
@@ -1393,7 +1488,7 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Right Column: Accurate Forecast, Roulette, Multi-User GPS Map */}
+                {/* Right Column: Weather, Roulette, Multi-User GPS Map */}
                 {currentPlan && (
                   <div className="md:col-span-2 space-y-3.5 sm:space-y-4">
                     <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
