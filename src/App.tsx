@@ -348,7 +348,7 @@ export default function App() {
   const [newBucketNotes, setNewBucketNotes] = useState('');
   const [newBucketVibe, setNewBucketVibe] = useState('Cozy & Romantic');
 
-  // Wallet Budgets for members (Default starting cash 5000)
+  // Wallet Budgets for members
   const [memberWallets, setMemberWallets] = useState<Record<string, number>>(() => {
     try {
       return JSON.parse(localStorage.getItem('dc_member_wallets') || '{}');
@@ -358,6 +358,8 @@ export default function App() {
   });
 
   const [topUpInputs, setTopUpInputs] = useState<Record<string, string>>({});
+  const [remainingEditMode, setRemainingEditMode] = useState<Record<string, boolean>>({});
+  const [tempRemainingInputs, setTempRemainingInputs] = useState<Record<string, string>>({});
 
   useEffect(() => {
     localStorage.setItem('dc_member_wallets', JSON.stringify(memberWallets));
@@ -1329,7 +1331,7 @@ export default function App() {
                   <KeyRound size={16} className="absolute left-3.5 top-3" style={{ color: activeThemeObj.subText }} />
                   <input
                     type="text"
-                    placeholder="e.g. KEN OR KEN-20"
+                    placeholder="e.g. KEN or KEN-2020"
                     value={customCodeInput}
                     onChange={(e) => setCustomCodeInput(e.target.value)}
                     className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border text-sm font-mono uppercase tracking-wider focus:outline-hidden focus:ring-2 shadow-2xs transition-all"
@@ -2046,7 +2048,7 @@ export default function App() {
       {activeTab === 'bucket' && (
         <section className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-4 sm:space-y-6">
           <div className="p-5 sm:p-6 rounded-3xl border shadow-xl backdrop-blur-md transition-all duration-300 hover:scale-[1.01]" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, borderRadius: activeThemeObj.radius, boxShadow: activeThemeObj.shadowStyle }}>
-            <h3 className="text-sm sm:text-base font-bold mb-0.5" style={{ color: activeThemeObj.text }}>BUCKETLIST ADDING</h3>
+            <h3 className="text-sm sm:text-base font-bold mb-0.5" style={{ color: activeThemeObj.text }}>ADD NEW BUCKETLIST</h3>
             <p className="text-xs mb-4" style={{ color: activeThemeObj.subText }}>Places or activities to try together</p>
 
             <form onSubmit={handleAddBucketItem} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -2144,7 +2146,7 @@ export default function App() {
               </div>
               <div>
                 <h3 className="text-xs sm:text-sm font-bold" style={{ color: activeThemeObj.text }}>Budget Splitter & Wallet</h3>
-                <p className="text-[11px]" style={{ color: activeThemeObj.subText }}>Top up your wallet and watch it automatically decrease as you spend!</p>
+                <p className="text-[11px]" style={{ color: activeThemeObj.subText }}>Add cash in your wallet and watch it automatically decrease as you spend!</p>
               </div>
             </div>
 
@@ -2191,7 +2193,7 @@ export default function App() {
 
                       <div className="grid grid-cols-2 gap-2 text-xs items-end">
                         <div>
-                          <label className="block text-[10px] font-semibold mb-1 opacity-80" style={{ color: activeThemeObj.subText }}>Add Cash</label>
+                          <label className="block text-[10px] font-semibold mb-1 opacity-80" style={{ color: activeThemeObj.subText }}>Add Cash </label>
                           <div className="flex gap-1.5">
                             <input
                               type="number"
@@ -2229,10 +2231,56 @@ export default function App() {
                         </div>
 
                         <div>
-                          <span className="block text-[10px] font-semibold mb-1 opacity-80" style={{ color: activeThemeObj.subText }}>Remaining Cash</span>
-                          <div className="px-3 py-2 rounded-xl border text-xs font-black text-blue-500 flex items-center bg-blue-500/5 h-[34px]" style={{ borderColor: activeThemeObj.border }}>
-                            ₱{Math.max(0, boyRemaining).toLocaleString()}
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-semibold opacity-80" style={{ color: activeThemeObj.subText }}>Remaining Cash</span>
+                            {remainingEditMode[boyName] ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const correctedRemaining = parseFloat(tempRemainingInputs[boyName]) || 0;
+                                  setMemberWallets({ ...memberWallets, [boyName]: correctedRemaining + boyShare });
+                                  setRemainingEditMode({ ...remainingEditMode, [boyName]: false });
+                                }}
+                                className="text-[10px] font-bold text-emerald-500 hover:underline cursor-pointer"
+                              >
+                                Save
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTempRemainingInputs({ ...tempRemainingInputs, [boyName]: String(Math.max(0, boyRemaining)) });
+                                  setRemainingEditMode({ ...remainingEditMode, [boyName]: true });
+                                }}
+                                className="text-[10px] font-bold hover:underline cursor-pointer"
+                                style={{ color: activeThemeObj.accent }}
+                              >
+                                Edit
+                              </button>
+                            )}
                           </div>
+
+                          {remainingEditMode[boyName] ? (
+                            <input
+                              type="number"
+                              value={tempRemainingInputs[boyName] ?? ''}
+                              onChange={(e) => setTempRemainingInputs({ ...tempRemainingInputs, [boyName]: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const correctedRemaining = parseFloat(tempRemainingInputs[boyName]) || 0;
+                                  setMemberWallets({ ...memberWallets, [boyName]: correctedRemaining + boyShare });
+                                  setRemainingEditMode({ ...remainingEditMode, [boyName]: false });
+                                }
+                              }}
+                              className="w-full px-3 py-1.5 rounded-xl border text-xs font-bold shadow-2xs"
+                              style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                              autoFocus
+                            />
+                          ) : (
+                            <div className="px-3 py-2 rounded-xl border text-xs font-black text-blue-500 flex items-center bg-blue-500/5 h-[34px]" style={{ borderColor: activeThemeObj.border }}>
+                              ₱{Math.max(0, boyRemaining).toLocaleString()}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -2305,10 +2353,56 @@ export default function App() {
                         </div>
 
                         <div>
-                          <span className="block text-[10px] font-semibold mb-1 opacity-80" style={{ color: activeThemeObj.subText }}>Remaining Cash</span>
-                          <div className="px-3 py-2 rounded-xl border text-xs font-black text-rose-500 flex items-center bg-rose-500/5 h-[34px]" style={{ borderColor: activeThemeObj.border }}>
-                            ₱{Math.max(0, girlRemaining).toLocaleString()}
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-semibold opacity-80" style={{ color: activeThemeObj.subText }}>Remaining Cash</span>
+                            {remainingEditMode[girlName] ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const correctedRemaining = parseFloat(tempRemainingInputs[girlName]) || 0;
+                                  setMemberWallets({ ...memberWallets, [girlName]: correctedRemaining + girlShare });
+                                  setRemainingEditMode({ ...remainingEditMode, [girlName]: false });
+                                }}
+                                className="text-[10px] font-bold text-emerald-500 hover:underline cursor-pointer"
+                              >
+                                Save
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTempRemainingInputs({ ...tempRemainingInputs, [girlName]: String(Math.max(0, girlRemaining)) });
+                                  setRemainingEditMode({ ...remainingEditMode, [girlName]: true });
+                                }}
+                                className="text-[10px] font-bold hover:underline cursor-pointer"
+                                style={{ color: activeThemeObj.accent }}
+                              >
+                                Edit
+                              </button>
+                            )}
                           </div>
+
+                          {remainingEditMode[girlName] ? (
+                            <input
+                              type="number"
+                              value={tempRemainingInputs[girlName] ?? ''}
+                              onChange={(e) => setTempRemainingInputs({ ...tempRemainingInputs, [girlName]: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const correctedRemaining = parseFloat(tempRemainingInputs[girlName]) || 0;
+                                  setMemberWallets({ ...memberWallets, [girlName]: correctedRemaining + girlShare });
+                                  setRemainingEditMode({ ...remainingEditMode, [girlName]: false });
+                                }
+                              }}
+                              className="w-full px-3 py-1.5 rounded-xl border text-xs font-bold shadow-2xs"
+                              style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                              autoFocus
+                            />
+                          ) : (
+                            <div className="px-3 py-2 rounded-xl border text-xs font-black text-rose-500 flex items-center bg-rose-500/5 h-[34px]" style={{ borderColor: activeThemeObj.border }}>
+                              ₱{Math.max(0, girlRemaining).toLocaleString()}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -2337,19 +2431,19 @@ export default function App() {
 
                 <div className="p-5 rounded-3xl border shadow-xl text-center relative overflow-hidden backdrop-blur-md transition-all duration-300 hover:scale-[1.02]" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, borderRadius: activeThemeObj.radius, boxShadow: activeThemeObj.shadowStyle }}>
                   <div className="absolute top-0 left-0 right-0 h-1.5 bg-blue-500" />
-                  <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">{boyName} Share</p>
+                  <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">{boyName} SPent</p>
                   <p className="text-2xl sm:text-3xl font-black text-blue-500 mt-1">₱{boyShare.toLocaleString()}</p>
                   <p className="text-[11px] opacity-80 mt-0.5" style={{ color: activeThemeObj.subText }}>
-                    {totalCost > 0 ? `${Math.round((boyShare / totalCost) * 100)}% of total budget` : '0%'}
+
                   </p>
                 </div>
 
                 <div className="p-5 rounded-3xl border shadow-xl text-center relative overflow-hidden backdrop-blur-md transition-all duration-300 hover:scale-[1.02]" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, borderRadius: activeThemeObj.radius, boxShadow: activeThemeObj.shadowStyle }}>
                   <div className="absolute top-0 left-0 right-0 h-1.5 bg-rose-500" />
-                  <p className="text-xs font-bold text-rose-500 uppercase tracking-wider">{girlName} Share</p>
+                  <p className="text-xs font-bold text-rose-500 uppercase tracking-wider">{girlName} Spent</p>
                   <p className="text-2xl sm:text-3xl font-black text-rose-500 mt-1">₱{girlShare.toLocaleString()}</p>
                   <p className="text-[11px] opacity-80 mt-0.5" style={{ color: activeThemeObj.subText }}>
-                    {totalCost > 0 ? `${Math.round((girlShare / totalCost) * 100)}% of total budget` : '0%'}
+
                   </p>
                 </div>
               </div>
@@ -2383,7 +2477,7 @@ export default function App() {
                     className="px-4 py-2.5 rounded-2xl border text-xs cursor-pointer font-semibold shadow-2xs transition-all"
                     style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
                   >
-                    <option value="50/50" style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text }}>Split 50 / 50 (Equally)</option>
+                    <option value="50/50" style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text }}> Split 50 / 50 (Equally)</option>
                     <option value={boyName} style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text }}>Treated / Paid by {boyName}</option>
                     <option value={girlName} style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text }}>Treated / Paid by {girlName}</option>
                   </select>
@@ -2655,7 +2749,7 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-[9999]" onClick={() => setEditingBucketItem(null)}>
           <div className="w-full max-w-md rounded-3xl p-5 sm:p-6 shadow-2xl border pointer-events-auto transition-all" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, color: activeThemeObj.text }} onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-3">
-              <h2 className="text-base font-bold" style={{ color: activeThemeObj.text }}>Edit Wishlist Idea</h2>
+              <h2 className="text-base font-bold" style={{ color: activeThemeObj.text }}>Edit Bucketlist Idea</h2>
               <button onClick={() => setEditingBucketItem(null)} className="p-1 rounded-full cursor-pointer hover:opacity-80" style={{ color: activeThemeObj.subText }}>
                 <X size={18} />
               </button>
