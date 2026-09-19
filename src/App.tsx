@@ -5,7 +5,7 @@ import {
   Heart, Calendar, MapPin, Plus, Shirt, CheckSquare, ExternalLink,
   Navigation, Sparkles, Trash2, Camera, LogOut, User,
   Pencil, CloudSun, Dices, Clock, History, BookmarkPlus,
-  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, X, Loader2, ImagePlus, KeyRound, Radio, Wand2, Download, BookOpen, ChevronLeft, ChevronRight, ChevronDown, Crown, Palette, Bell
+  DollarSign, Star, ArrowRight, CheckCircle2, Copy, Users, X, Loader2, ImagePlus, KeyRound, Radio, Wand2, Download, BookOpen, ChevronLeft, ChevronRight, ChevronDown, Crown, Palette, Bell, Wallet, Check, AlertCircle
 } from 'lucide-react';
 import './utils/leafletIcons';
 import { supabase } from './supabase';
@@ -297,6 +297,25 @@ function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   return (R * c);
 }
 
+const playNotificationSound = () => {
+  try {
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+    osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5
+    gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.3);
+  } catch {
+    // Audio context prevented by browser autoplay policy if un-interacted
+  }
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'planner' | 'history' | 'bucket' | 'budget'>('planner');
 
@@ -329,17 +348,39 @@ export default function App() {
   const [newBucketNotes, setNewBucketNotes] = useState('');
   const [newBucketVibe, setNewBucketVibe] = useState('Cozy & Romantic');
 
+  // Wallet Budgets for members (Default starting cash 5000)
+  const [memberWallets, setMemberWallets] = useState<Record<string, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('dc_member_wallets') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  const [topUpInputs, setTopUpInputs] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    localStorage.setItem('dc_member_wallets', JSON.stringify(memberWallets));
+  }, [memberWallets]);
+
   // Wishlist Editing State
   const [editingBucketItem, setEditingBucketItem] = useState<BucketItem | null>(null);
+
+  // Expense Editing State
+  const [editingBudgetItemId, setEditingBudgetItemId] = useState<number | null>(null);
+  const [editItemName, setEditItemName] = useState('');
+  const [editItemCost, setEditItemCost] = useState('');
+  const [editItemPaidBy, setEditItemPaidBy] = useState('50/50');
 
   // GPS Live State
   const [userCoords, setUserCoords] = useState<[number, number] | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const watchIdRef = useRef<number | null>(null);
 
-  // Notifications & Arrival Alert
+  // Notifications & Alert Ref for sound throttle
   const [arrivedMembers, setArrivedMembers] = useState<string[]>([]);
   const [notificationBanner, setNotificationBanner] = useState<string | null>(null);
+  const lastAlertRef = useRef<string | null>(null);
 
   // Weather & Extra
   const [weatherInfo, setWeatherInfo] = useState<{ temp: number; description: string } | null>(null);
@@ -408,6 +449,44 @@ export default function App() {
   const [currentTheme, setCurrentTheme] = useState(() => localStorage.getItem('dc_theme') || 'sakura');
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const activeThemeObj = aestheticThemes.find((t) => t.id === currentTheme) || aestheticThemes[0];
+
+  const upcomingPlans = plans.filter((p) => !p.completed);
+  const historyPlans = plans.filter((p) => Boolean(p.completed));
+  const currentPlan = upcomingPlans.find((p) => p.id === selectedPlanId) || upcomingPlans[0] || null;
+
+  const currentBudget = currentPlan?.budgetItems || [];
+  const totalCost = currentBudget.reduce((acc, curr) => acc + curr.cost, 0);
+
+  const boyName = currentUserName || (members[0]?.name) || 'Boy';
+  const partnerMember = members.find((m) => m.name.toLowerCase() !== boyName.toLowerCase());
+  const girlName = partnerMember?.name || (members[1]?.name) || 'Girl';
+
+  const boyShare = currentBudget.reduce((acc, curr) => {
+    if (curr.paidBy === boyName) return acc + curr.cost;
+    if (curr.paidBy === '50/50') {
+      const count = members.length > 0 ? members.length : 2;
+      return acc + (curr.cost / count);
+    }
+    return acc;
+  }, 0);
+
+  const girlShare = currentBudget.reduce((acc, curr) => {
+    if (curr.paidBy === girlName) return acc + curr.cost;
+    if (curr.paidBy === '50/50') {
+      const count = members.length > 0 ? members.length : 2;
+      return acc + (curr.cost / count);
+    }
+    return acc;
+  }, 0);
+
+  const otherMember = members.find((m) => m.id !== currentUserId && m.lat && m.lng);
+  const coupleDistanceKm = (userCoords && otherMember && otherMember.lat && otherMember.lng)
+    ? getDistanceKm(userCoords[0], userCoords[1], otherMember.lat, otherMember.lng)
+    : null;
+
+  const isScrapbookReady = historyPlans.length >= 2;
+  const sortedBudgetItems = [...currentBudget].sort((a: BudgetItem, b: BudgetItem) => b.cost - a.cost);
+  const albumDates = historyPlans.slice(0, 2);
 
   const handleMemoryPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, planId?: string) => {
     if (!e.target.files || !e.target.files[0]) return;
@@ -593,10 +672,6 @@ export default function App() {
     };
   }, [coupleId]);
 
-  const upcomingPlans = plans.filter((p) => !p.completed);
-  const historyPlans = plans.filter((p) => Boolean(p.completed));
-  const currentPlan = upcomingPlans.find((p) => p.id === selectedPlanId) || upcomingPlans[0] || null;
-
   useEffect(() => {
     if (!currentPlan) return;
     setIsWeatherLoading(true);
@@ -621,6 +696,7 @@ export default function App() {
         if (distKm <= 0.05 && !arrivedMembers.includes(m.name)) {
           setArrivedMembers((prev) => [...prev, m.name]);
           setNotificationBanner(`${m.name} has arrived at ${currentPlan.meetupName || currentPlan.locationName}.`);
+          playNotificationSound();
           setTimeout(() => setNotificationBanner(null), 8000);
         }
       }
@@ -644,6 +720,50 @@ export default function App() {
       }
     }
   }, [members, currentPlan, arrivedMembers]);
+
+  // Robust 15% Low Cash & Out of Cash Alert with individual naming and sound notifications
+  useEffect(() => {
+    const boyWallet = memberWallets[boyName] ?? 5000;
+    const girlWallet = memberWallets[girlName] ?? 5000;
+    const boyRemaining = boyWallet - boyShare;
+    const girlRemaining = girlWallet - girlShare;
+
+    const isBoyOut = boyWallet > 0 && boyRemaining <= 0;
+    const isGirlOut = girlWallet > 0 && girlRemaining <= 0;
+
+    const isBoyLow = boyWallet > 0 && boyRemaining > 0 && boyRemaining <= Math.max(10, boyWallet * 0.15);
+    const isGirlLow = girlWallet > 0 && girlRemaining > 0 && girlRemaining <= Math.max(10, girlWallet * 0.15);
+
+    let alertMsg: string | null = null;
+
+    if (isBoyOut && isGirlOut) {
+      alertMsg = `⚠️ Out of Cash Alert: Both ${boyName} and ${girlName} have run out of cash (₱0 remaining)!`;
+    } else if (isBoyOut && isGirlLow) {
+      alertMsg = `⚠️ Cash Alert: ${boyName} is out of cash (₱0), and ${girlName} is almost out of cash (₱${girlRemaining.toLocaleString()} left)!`;
+    } else if (isGirlOut && isBoyLow) {
+      alertMsg = `⚠️ Cash Alert: ${girlName} is out of cash (₱0), and ${boyName} is almost out of cash (₱${boyRemaining.toLocaleString()} left)!`;
+    } else if (isBoyOut) {
+      alertMsg = `⚠️ Out of Cash Alert: ${boyName} has completely run out of cash (₱0 remaining)!`;
+    } else if (isGirlOut) {
+      alertMsg = `⚠️ Out of Cash Alert: ${girlName} has completely run out of cash (₱0 remaining)!`;
+    } else if (isBoyLow && isGirlLow) {
+      alertMsg = `⚠️ Low Cash Alert: Both ${boyName} and ${girlName} are almost out of cash!`;
+    } else if (isBoyLow) {
+      alertMsg = `⚠️ Low Cash Alert: ${boyName} is almost out of cash (Remaining: ₱${boyRemaining.toLocaleString()})!`;
+    } else if (isGirlLow) {
+      alertMsg = `⚠️ Low Cash Alert: ${girlName} is almost out of cash (Remaining: ₱${girlRemaining.toLocaleString()})!`;
+    }
+
+    if (alertMsg) {
+      if (lastAlertRef.current !== alertMsg) {
+        playNotificationSound();
+        lastAlertRef.current = alertMsg;
+      }
+      setNotificationBanner(alertMsg);
+    } else {
+      lastAlertRef.current = null;
+    }
+  }, [boyShare, girlShare, memberWallets, boyName, girlName]);
 
   const handleCreateSpace = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1064,6 +1184,21 @@ export default function App() {
     });
   };
 
+  const handleSaveExpenseEdit = async (itemId: number) => {
+    if (!currentPlan || !editItemName.trim() || !editItemCost) return;
+    const costNum = parseFloat(editItemCost);
+    if (isNaN(costNum)) return;
+
+    const updated = (currentPlan.budgetItems || []).map((b) =>
+      b.id === itemId ? { ...b, item: editItemName.trim(), cost: costNum, paidBy: editItemPaidBy } : b
+    );
+    setEditingBudgetItemId(null);
+    setPlans((prev) => prev.map((p) => (p.id === currentPlan.id ? { ...p, budgetItems: updated } : p)));
+    supabase.from('date_plans').update({ budget_items: updated }).eq('id', currentPlan.id).then(({ error }) => {
+      if (error) alert(`Error updating expense: ${error.message}`);
+    });
+  };
+
   const handleAddBucketItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBucketTitle.trim() || !coupleId) return;
@@ -1128,40 +1263,6 @@ export default function App() {
     return `${days} day${days > 1 ? 's' : ''} to go!`;
   };
 
-  const currentBudget = currentPlan?.budgetItems || [];
-  const totalCost = currentBudget.reduce((acc, curr) => acc + curr.cost, 0);
-  const sortedBudgetItems = [...currentBudget].sort((a, b) => b.cost - a.cost);
-
-  const boyName = currentUserName || (members[0]?.name) || 'Boy';
-  const partnerMember = members.find((m) => m.name.toLowerCase() !== boyName.toLowerCase());
-  const girlName = partnerMember?.name || (members[1]?.name) || 'Girl';
-
-  const boyShare = currentBudget.reduce((acc, curr) => {
-    if (curr.paidBy === boyName) return acc + curr.cost;
-    if (curr.paidBy === '50/50') {
-      const count = members.length > 0 ? members.length : 2;
-      return acc + (curr.cost / count);
-    }
-    return acc;
-  }, 0);
-
-  const girlShare = currentBudget.reduce((acc, curr) => {
-    if (curr.paidBy === girlName) return acc + curr.cost;
-    if (curr.paidBy === '50/50') {
-      const count = members.length > 0 ? members.length : 2;
-      return acc + (curr.cost / count);
-    }
-    return acc;
-  }, 0);
-
-  const otherMember = members.find((m) => m.id !== currentUserId && m.lat && m.lng);
-  const coupleDistanceKm = (userCoords && otherMember && otherMember.lat && otherMember.lng)
-    ? getDistanceKm(userCoords[0], userCoords[1], otherMember.lat, otherMember.lng)
-    : null;
-
-  const isScrapbookReady = historyPlans.length >= 2;
-  const albumDates = historyPlans.slice(0, 2);
-
   // LOGIN SCREEN
   if (!coupleId) {
     return (
@@ -1206,7 +1307,7 @@ export default function App() {
                     value={createNameInput}
                     onChange={(e) => setCreateNameInput(e.target.value)}
                     className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border text-sm focus:outline-hidden focus:ring-2 shadow-2xs transition-all"
-                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.bg, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
                     required
                   />
                 </div>
@@ -1228,11 +1329,11 @@ export default function App() {
                   <KeyRound size={16} className="absolute left-3.5 top-3" style={{ color: activeThemeObj.subText }} />
                   <input
                     type="text"
-                    placeholder="e.g. BEN-LOR-2026 (or leave empty)"
+                    placeholder="e.g. KEN OR KEN-20"
                     value={customCodeInput}
                     onChange={(e) => setCustomCodeInput(e.target.value)}
                     className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border text-sm font-mono uppercase tracking-wider focus:outline-hidden focus:ring-2 shadow-2xs transition-all"
-                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.bg, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
                   />
                 </div>
               </div>
@@ -1247,7 +1348,7 @@ export default function App() {
                 >
                   {[2, 3, 4, 5, 6, 7, 8].map((num) => (
                     <option key={num} value={num} style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text }}>
-                      {num} People {num === 2 ? '(Couples only)' : num === 4 ? '(Double Date)' : '(Group Hangout)'}
+                      {num} People {num === 2 ? '' : num === 4 ? '' : ''}
                     </option>
                   ))}
                 </select>
@@ -1274,7 +1375,7 @@ export default function App() {
                     value={joinCodeInput}
                     onChange={(e) => setJoinCodeInput(e.target.value)}
                     className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border text-sm font-mono uppercase tracking-wider focus:outline-hidden focus:ring-2 shadow-2xs transition-all"
-                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.bg, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
                     required
                     autoFocus
                   />
@@ -1312,7 +1413,7 @@ export default function App() {
                       value={joinNameInput}
                       onChange={(e) => setJoinNameInput(e.target.value)}
                       className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border text-sm focus:outline-hidden focus:ring-2 shadow-2xs transition-all"
-                      style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                      style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.bg, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
                       required
                     />
                   </div>
@@ -1496,7 +1597,7 @@ export default function App() {
             }`}
           style={activeTab === 'bucket' ? { backgroundColor: activeThemeObj.accent } : { backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
         >
-          <BookmarkPlus size={13} /> Wishlist ({bucketList.length})
+          <BookmarkPlus size={13} /> Bucketlist ({bucketList.length})
         </button>
 
         <button
@@ -1945,7 +2046,7 @@ export default function App() {
       {activeTab === 'bucket' && (
         <section className="max-w-5xl mx-auto mt-4 sm:mt-6 space-y-4 sm:space-y-6">
           <div className="p-5 sm:p-6 rounded-3xl border shadow-xl backdrop-blur-md transition-all duration-300 hover:scale-[1.01]" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, borderRadius: activeThemeObj.radius, boxShadow: activeThemeObj.shadowStyle }}>
-            <h3 className="text-sm sm:text-base font-bold mb-0.5" style={{ color: activeThemeObj.text }}>Add to Date Wishlist</h3>
+            <h3 className="text-sm sm:text-base font-bold mb-0.5" style={{ color: activeThemeObj.text }}>BUCKETLIST ADDING</h3>
             <p className="text-xs mb-4" style={{ color: activeThemeObj.subText }}>Places or activities to try together</p>
 
             <form onSubmit={handleAddBucketItem} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -2042,8 +2143,8 @@ export default function App() {
                 <DollarSign size={18} />
               </div>
               <div>
-                <h3 className="text-xs sm:text-sm font-bold" style={{ color: activeThemeObj.text }}>Couple Bill & Budget Splitter</h3>
-                <p className="text-[11px]" style={{ color: activeThemeObj.subText }}>Breakdown of how much {boyName} and {girlName} will pay or bring</p>
+                <h3 className="text-xs sm:text-sm font-bold" style={{ color: activeThemeObj.text }}>Budget Splitter & Wallet</h3>
+                <p className="text-[11px]" style={{ color: activeThemeObj.subText }}>Top up your wallet and watch it automatically decrease as you spend!</p>
               </div>
             </div>
 
@@ -2071,6 +2172,161 @@ export default function App() {
             </div>
           ) : (
             <>
+              {/* WALLET / CASH BROUGHT INPUT & REMAINING CARDS */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Boy Wallet Card */}
+                {(() => {
+                  const boyTotalWallet = memberWallets[boyName] ?? 5000;
+                  const boyRemaining = boyTotalWallet - boyShare;
+                  const boyOverspent = boyRemaining < 0 ? Math.abs(boyRemaining) : 0;
+                  return (
+                    <div className="p-5 rounded-3xl border shadow-xl backdrop-blur-md space-y-3" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, borderRadius: activeThemeObj.radius, boxShadow: activeThemeObj.shadowStyle }}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Wallet size={16} className="text-blue-500" />
+                          <h4 className="font-bold text-xs sm:text-sm text-blue-500">{boyName}'s Wallet</h4>
+                        </div>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-500">Cash Tracker</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs items-end">
+                        <div>
+                          <label className="block text-[10px] font-semibold mb-1 opacity-80" style={{ color: activeThemeObj.subText }}>Add Cash</label>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="number"
+                              placeholder="+ Add cash"
+                              value={topUpInputs[boyName] ?? ''}
+                              onChange={(e) => setTopUpInputs({ ...topUpInputs, [boyName]: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const addVal = parseFloat(topUpInputs[boyName]) || 0;
+                                  if (addVal > 0) {
+                                    setMemberWallets({ ...memberWallets, [boyName]: boyTotalWallet + addVal });
+                                    setTopUpInputs({ ...topUpInputs, [boyName]: '' });
+                                  }
+                                }
+                              }}
+                              className="w-full px-3 py-1.5 rounded-xl border text-xs font-bold shadow-2xs"
+                              style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const addVal = parseFloat(topUpInputs[boyName]) || 0;
+                                if (addVal > 0) {
+                                  setMemberWallets({ ...memberWallets, [boyName]: boyTotalWallet + addVal });
+                                  setTopUpInputs({ ...topUpInputs, [boyName]: '' });
+                                }
+                              }}
+                              className="px-3 py-1.5 text-white rounded-xl text-xs font-bold cursor-pointer shadow-sm flex items-center justify-center"
+                              style={{ backgroundColor: activeThemeObj.accent }}
+                              title="Add cash"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <span className="block text-[10px] font-semibold mb-1 opacity-80" style={{ color: activeThemeObj.subText }}>Remaining Cash</span>
+                          <div className="px-3 py-2 rounded-xl border text-xs font-black text-blue-500 flex items-center bg-blue-500/5 h-[34px]" style={{ borderColor: activeThemeObj.border }}>
+                            ₱{Math.max(0, boyRemaining).toLocaleString()}
+                          </div>
+                        </div>
+                      </div>
+
+                      {boyOverspent > 0 && (
+                        <div className="mt-2 p-2 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-1.5 text-rose-500 text-[11px] font-bold animate-pulse">
+                          <AlertCircle size={13} />
+                          <span>Labis na nagastos: ₱{boyOverspent.toLocaleString()}!</span>
+                        </div>
+                      )}
+
+                      <p className="text-[10px] opacity-70" style={{ color: activeThemeObj.subText }}>
+
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Girl Wallet Card */}
+                {(() => {
+                  const girlTotalWallet = memberWallets[girlName] ?? 5000;
+                  const girlRemaining = girlTotalWallet - girlShare;
+                  const girlOverspent = girlRemaining < 0 ? Math.abs(girlRemaining) : 0;
+                  return (
+                    <div className="p-5 rounded-3xl border shadow-xl backdrop-blur-md space-y-3" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, borderRadius: activeThemeObj.radius, boxShadow: activeThemeObj.shadowStyle }}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Wallet size={16} className="text-rose-500" />
+                          <h4 className="font-bold text-xs sm:text-sm text-rose-500">{girlName}'s Wallet</h4>
+                        </div>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-500">Cash Tracker</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs items-end">
+                        <div>
+                          <label className="block text-[10px] font-semibold mb-1 opacity-80" style={{ color: activeThemeObj.subText }}>Add Cash</label>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="number"
+                              placeholder="+ Add cash"
+                              value={topUpInputs[girlName] ?? ''}
+                              onChange={(e) => setTopUpInputs({ ...topUpInputs, [girlName]: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const addVal = parseFloat(topUpInputs[girlName]) || 0;
+                                  if (addVal > 0) {
+                                    setMemberWallets({ ...memberWallets, [girlName]: girlTotalWallet + addVal });
+                                    setTopUpInputs({ ...topUpInputs, [girlName]: '' });
+                                  }
+                                }
+                              }}
+                              className="w-full px-3 py-1.5 rounded-xl border text-xs font-bold shadow-2xs"
+                              style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const addVal = parseFloat(topUpInputs[girlName]) || 0;
+                                if (addVal > 0) {
+                                  setMemberWallets({ ...memberWallets, [girlName]: girlTotalWallet + addVal });
+                                  setTopUpInputs({ ...topUpInputs, [girlName]: '' });
+                                }
+                              }}
+                              className="px-3 py-1.5 text-white rounded-xl text-xs font-bold cursor-pointer shadow-sm flex items-center justify-center"
+                              style={{ backgroundColor: activeThemeObj.accent }}
+                              title="Add cash"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <span className="block text-[10px] font-semibold mb-1 opacity-80" style={{ color: activeThemeObj.subText }}>Remaining Cash</span>
+                          <div className="px-3 py-2 rounded-xl border text-xs font-black text-rose-500 flex items-center bg-rose-500/5 h-[34px]" style={{ borderColor: activeThemeObj.border }}>
+                            ₱{Math.max(0, girlRemaining).toLocaleString()}
+                          </div>
+                        </div>
+                      </div>
+
+                      {girlOverspent > 0 && (
+                        <div className="mt-2 p-2 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-1.5 text-rose-500 text-[11px] font-bold animate-pulse">
+                          <AlertCircle size={13} />
+                          <span>Labis na nagastos: ₱{girlOverspent.toLocaleString()}!</span>
+                        </div>
+                      )}
+
+                      <p className="text-[10px] opacity-70" style={{ color: activeThemeObj.subText }}>
+
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+
               {/* SUMMARY CARDS */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="p-5 rounded-3xl border shadow-xl text-center backdrop-blur-md transition-all duration-300 hover:scale-[1.02]" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, borderRadius: activeThemeObj.radius, boxShadow: activeThemeObj.shadowStyle }}>
@@ -2081,7 +2337,7 @@ export default function App() {
 
                 <div className="p-5 rounded-3xl border shadow-xl text-center relative overflow-hidden backdrop-blur-md transition-all duration-300 hover:scale-[1.02]" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, borderRadius: activeThemeObj.radius, boxShadow: activeThemeObj.shadowStyle }}>
                   <div className="absolute top-0 left-0 right-0 h-1.5 bg-blue-500" />
-                  <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">{boyName} will bring / pay</p>
+                  <p className="text-xs font-bold text-blue-500 uppercase tracking-wider">{boyName} Share</p>
                   <p className="text-2xl sm:text-3xl font-black text-blue-500 mt-1">₱{boyShare.toLocaleString()}</p>
                   <p className="text-[11px] opacity-80 mt-0.5" style={{ color: activeThemeObj.subText }}>
                     {totalCost > 0 ? `${Math.round((boyShare / totalCost) * 100)}% of total budget` : '0%'}
@@ -2090,7 +2346,7 @@ export default function App() {
 
                 <div className="p-5 rounded-3xl border shadow-xl text-center relative overflow-hidden backdrop-blur-md transition-all duration-300 hover:scale-[1.02]" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, borderRadius: activeThemeObj.radius, boxShadow: activeThemeObj.shadowStyle }}>
                   <div className="absolute top-0 left-0 right-0 h-1.5 bg-rose-500" />
-                  <p className="text-xs font-bold text-rose-500 uppercase tracking-wider">{girlName} will bring / pay</p>
+                  <p className="text-xs font-bold text-rose-500 uppercase tracking-wider">{girlName} Share</p>
                   <p className="text-2xl sm:text-3xl font-black text-rose-500 mt-1">₱{girlShare.toLocaleString()}</p>
                   <p className="text-[11px] opacity-80 mt-0.5" style={{ color: activeThemeObj.subText }}>
                     {totalCost > 0 ? `${Math.round((girlShare / totalCost) * 100)}% of total budget` : '0%'}
@@ -2127,7 +2383,7 @@ export default function App() {
                     className="px-4 py-2.5 rounded-2xl border text-xs cursor-pointer font-semibold shadow-2xs transition-all"
                     style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
                   >
-                    <option value="50/50" style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text }}>🤝 Split 50 / 50 (Equally)</option>
+                    <option value="50/50" style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text }}>Split 50 / 50 (Equally)</option>
                     <option value={boyName} style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text }}>Treated / Paid by {boyName}</option>
                     <option value={girlName} style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text }}>Treated / Paid by {girlName}</option>
                   </select>
@@ -2161,7 +2417,8 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y" style={{ borderColor: activeThemeObj.border, color: activeThemeObj.text }}>
-                          {sortedBudgetItems.map((b) => {
+                          {sortedBudgetItems.map((b: BudgetItem) => {
+                            const isEditingThis = editingBudgetItemId === b.id;
                             let itemBoyCost = 0;
                             let itemGirlCost = 0;
 
@@ -2176,19 +2433,73 @@ export default function App() {
 
                             return (
                               <tr key={b.id} className="transition-colors hover:opacity-80">
-                                <td className="py-3 px-4 font-semibold">{b.item}</td>
-                                <td className="py-3 px-4 font-bold">₱{b.cost.toLocaleString()}</td>
+                                <td className="py-3 px-4 font-semibold">
+                                  {isEditingThis ? (
+                                    <input
+                                      type="text"
+                                      value={editItemName}
+                                      onChange={(e) => setEditItemName(e.target.value)}
+                                      className="px-2 py-1 rounded border text-xs w-full"
+                                      style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                                    />
+                                  ) : b.item}
+                                </td>
+                                <td className="py-3 px-4 font-bold">
+                                  {isEditingThis ? (
+                                    <input
+                                      type="number"
+                                      value={editItemCost}
+                                      onChange={(e) => setEditItemCost(e.target.value)}
+                                      className="px-2 py-1 rounded border text-xs w-24"
+                                      style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                                    />
+                                  ) : `₱${b.cost.toLocaleString()}`}
+                                </td>
                                 <td className="py-3 px-4">
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold border shadow-2xs" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, color: activeThemeObj.text }}>
-                                    {b.paidBy === '50/50' ? '🤝 Split 50/50' : b.paidBy}
-                                  </span>
+                                  {isEditingThis ? (
+                                    <select
+                                      value={editItemPaidBy}
+                                      onChange={(e) => setEditItemPaidBy(e.target.value)}
+                                      className="px-2 py-1 rounded border text-xs"
+                                      style={{ backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                                    >
+                                      <option value="50/50">Split 50/50</option>
+                                      <option value={boyName}>{boyName}</option>
+                                      <option value={girlName}>{girlName}</option>
+                                    </select>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold border shadow-2xs" style={{ backgroundColor: activeThemeObj.card, borderColor: activeThemeObj.border, color: activeThemeObj.text }}>
+                                      {b.paidBy === '50/50' ? ' Split 50/50' : b.paidBy}
+                                    </span>
+                                  )}
                                 </td>
                                 <td className="py-3 px-4 font-bold text-blue-500">₱{itemBoyCost.toLocaleString()}</td>
                                 <td className="py-3 px-4 font-bold text-rose-500">₱{itemGirlCost.toLocaleString()}</td>
-                                <td className="py-3 px-3 text-right">
-                                  <button onClick={() => handleDeleteBudgetItem(b.id)} className="text-stone-400 hover:text-rose-500 p-1 cursor-pointer">
-                                    <Trash2 size={13} />
-                                  </button>
+                                <td className="py-3 px-3 text-right flex items-center justify-end gap-1.5">
+                                  {isEditingThis ? (
+                                    <>
+                                      <button onClick={() => handleSaveExpenseEdit(b.id)} className="p-1 text-emerald-500 hover:text-emerald-700 cursor-pointer" title="Save">
+                                        <Check size={14} />
+                                      </button>
+                                      <button onClick={() => setEditingBudgetItemId(null)} className="p-1 text-stone-400 hover:text-stone-600 cursor-pointer" title="Cancel">
+                                        <X size={14} />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button onClick={() => {
+                                        setEditingBudgetItemId(b.id);
+                                        setEditItemName(b.item);
+                                        setEditItemCost(String(b.cost));
+                                        setEditItemPaidBy(b.paidBy);
+                                      }} className="p-1 text-stone-400 hover:text-blue-500 cursor-pointer" title="Edit expense">
+                                        <Pencil size={13} />
+                                      </button>
+                                      <button onClick={() => handleDeleteBudgetItem(b.id)} className="p-1 text-stone-400 hover:text-rose-500 cursor-pointer" title="Delete expense">
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </>
+                                  )}
                                 </td>
                               </tr>
                             );
@@ -2317,7 +2628,7 @@ export default function App() {
               </button>
 
               <div className="flex gap-1.5">
-                {albumDates.map((_, i) => (
+                {albumDates.map((_, i: number) => (
                   <button
                     key={i}
                     onClick={() => setActiveStoryPage(i)}
