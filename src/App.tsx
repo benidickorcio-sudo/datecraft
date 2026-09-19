@@ -1469,8 +1469,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('planner')}
           className={`flex items-center gap-1.5 px-4.5 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all duration-300 hover:scale-105 cursor-pointer shadow-sm backdrop-blur-sm ${activeTab === 'planner'
-              ? 'text-white shadow-md'
-              : 'border hover:opacity-80'
+            ? 'text-white shadow-md'
+            : 'border hover:opacity-80'
             }`}
           style={activeTab === 'planner' ? { backgroundColor: activeThemeObj.accent } : { backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
         >
@@ -1480,8 +1480,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('history')}
           className={`flex items-center gap-1.5 px-4.5 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all duration-300 hover:scale-105 cursor-pointer shadow-sm backdrop-blur-sm ${activeTab === 'history'
-              ? 'text-white shadow-md'
-              : 'border hover:opacity-80'
+            ? 'text-white shadow-md'
+            : 'border hover:opacity-80'
             }`}
           style={activeTab === 'history' ? { backgroundColor: activeThemeObj.accent } : { backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
         >
@@ -1491,8 +1491,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('bucket')}
           className={`flex items-center gap-1.5 px-4.5 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all duration-300 hover:scale-105 cursor-pointer shadow-sm backdrop-blur-sm ${activeTab === 'bucket'
-              ? 'text-white shadow-md'
-              : 'border hover:opacity-80'
+            ? 'text-white shadow-md'
+            : 'border hover:opacity-80'
             }`}
           style={activeTab === 'bucket' ? { backgroundColor: activeThemeObj.accent } : { backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
         >
@@ -1502,12 +1502,12 @@ export default function App() {
         <button
           onClick={() => setActiveTab('budget')}
           className={`flex items-center gap-1.5 px-4.5 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all duration-300 hover:scale-105 cursor-pointer shadow-sm backdrop-blur-sm ${activeTab === 'budget'
-              ? 'text-white shadow-md'
-              : 'border hover:opacity-80'
+            ? 'text-white shadow-md'
+            : 'border hover:opacity-80'
             }`}
           style={activeTab === 'budget' ? { backgroundColor: activeThemeObj.accent } : { backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
         >
-          <DollarSign size={13} /> Bill Splitter (50/50)
+          <DollarSign size={13} /> Bill Splitter
         </button>
       </div>
 
@@ -2663,8 +2663,8 @@ export default function App() {
                     key={theme.id}
                     onClick={() => { setCurrentTheme(theme.id); localStorage.setItem('dc_theme', theme.id); setIsThemeModalOpen(false); }}
                     className={`w-full p-3.5 rounded-2xl border text-xs font-bold flex items-center justify-between cursor-pointer transition-all ${isSelected
-                        ? 'border-rose-500 bg-rose-50/60 text-rose-700 shadow-xs ring-1 ring-rose-400'
-                        : 'border-stone-200 hover:bg-stone-50 text-stone-700 bg-white'
+                      ? 'border-rose-500 bg-rose-50/60 text-rose-700 shadow-xs ring-1 ring-rose-400'
+                      : 'border-stone-200 hover:bg-stone-50 text-stone-700 bg-white'
                       }`}
                   >
                     <span className="text-left">{theme.name}</span>
