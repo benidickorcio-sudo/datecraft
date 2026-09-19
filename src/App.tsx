@@ -557,6 +557,11 @@ export default function App() {
     fetchSpaceDetails(coupleId);
     startLiveTracking();
 
+    const syncInterval = setInterval(() => {
+      fetchSpaceDetails(coupleId);
+      fetchDatePlans(coupleId);
+    }, 4000);
+
     const channel = supabase
       .channel(`space_live_${coupleId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'date_plans', filter: `couple_id=eq.${coupleId}` }, () => fetchDatePlans(coupleId))
@@ -582,6 +587,7 @@ export default function App() {
       .subscribe();
 
     return () => {
+      clearInterval(syncInterval);
       supabase.removeChannel(channel);
       if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
     };
@@ -1200,7 +1206,7 @@ export default function App() {
                     value={createNameInput}
                     onChange={(e) => setCreateNameInput(e.target.value)}
                     className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border text-sm focus:outline-hidden focus:ring-2 shadow-2xs transition-all"
-                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.bg, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
                     required
                   />
                 </div>
@@ -1226,7 +1232,7 @@ export default function App() {
                     value={customCodeInput}
                     onChange={(e) => setCustomCodeInput(e.target.value)}
                     className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border text-sm font-mono uppercase tracking-wider focus:outline-hidden focus:ring-2 shadow-2xs transition-all"
-                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.bg, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
                   />
                 </div>
               </div>
@@ -1268,7 +1274,7 @@ export default function App() {
                     value={joinCodeInput}
                     onChange={(e) => setJoinCodeInput(e.target.value)}
                     className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border text-sm font-mono uppercase tracking-wider focus:outline-hidden focus:ring-2 shadow-2xs transition-all"
-                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.bg, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                    style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
                     required
                     autoFocus
                   />
@@ -1276,11 +1282,11 @@ export default function App() {
               </div>
 
               {rememberedName ? (
-                <div className="p-3 border rounded-2xl flex items-center justify-between shadow-2xs" style={{ backgroundColor: 'rgba(255,255,255,0.8)', borderColor: activeThemeObj.border }}>
-                  <div className="flex items-center gap-2">
-                    <User size={15} style={{ color: activeThemeObj.accent }} />
-                    <span className="text-xs" style={{ color: activeThemeObj.subText }}>
-                      Joining as <strong style={{ color: activeThemeObj.text }}>{rememberedName}</strong>
+                <div className="p-3.5 border rounded-2xl flex items-center justify-between shadow-xs transition-all" style={{ backgroundColor: activeThemeObj.id === 'sakura' ? '#FFFFFF' : activeThemeObj.card, borderColor: activeThemeObj.border, color: activeThemeObj.text }}>
+                  <div className="flex items-center gap-2.5">
+                    <User size={16} style={{ color: activeThemeObj.accent }} />
+                    <span className="text-xs font-medium" style={{ color: activeThemeObj.subText }}>
+                      Joining as <strong style={{ color: activeThemeObj.text, fontWeight: '700', fontSize: '13px' }}>{rememberedName}</strong>
                     </span>
                   </div>
                   <button
@@ -1289,7 +1295,7 @@ export default function App() {
                       localStorage.removeItem('dc_remembered_name');
                       setJoinNameInput('');
                     }}
-                    className="text-[11px] hover:underline font-semibold cursor-pointer"
+                    className="text-xs hover:underline font-bold cursor-pointer px-2 py-1 rounded-lg"
                     style={{ color: activeThemeObj.accent }}
                   >
                     Change
@@ -1306,7 +1312,7 @@ export default function App() {
                       value={joinNameInput}
                       onChange={(e) => setJoinNameInput(e.target.value)}
                       className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border text-sm focus:outline-hidden focus:ring-2 shadow-2xs transition-all"
-                      style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.bg, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
+                      style={{ backgroundColor: activeThemeObj.id === 'sakura' ? 'rgba(255,255,255,0.9)' : activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
                       required
                     />
                   </div>
@@ -1463,8 +1469,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('planner')}
           className={`flex items-center gap-1.5 px-4.5 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all duration-300 hover:scale-105 cursor-pointer shadow-sm backdrop-blur-sm ${activeTab === 'planner'
-            ? 'text-white shadow-md'
-            : 'border hover:opacity-80'
+              ? 'text-white shadow-md'
+              : 'border hover:opacity-80'
             }`}
           style={activeTab === 'planner' ? { backgroundColor: activeThemeObj.accent } : { backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
         >
@@ -1474,8 +1480,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('history')}
           className={`flex items-center gap-1.5 px-4.5 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all duration-300 hover:scale-105 cursor-pointer shadow-sm backdrop-blur-sm ${activeTab === 'history'
-            ? 'text-white shadow-md'
-            : 'border hover:opacity-80'
+              ? 'text-white shadow-md'
+              : 'border hover:opacity-80'
             }`}
           style={activeTab === 'history' ? { backgroundColor: activeThemeObj.accent } : { backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
         >
@@ -1485,8 +1491,8 @@ export default function App() {
         <button
           onClick={() => setActiveTab('bucket')}
           className={`flex items-center gap-1.5 px-4.5 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all duration-300 hover:scale-105 cursor-pointer shadow-sm backdrop-blur-sm ${activeTab === 'bucket'
-            ? 'text-white shadow-md'
-            : 'border hover:opacity-80'
+              ? 'text-white shadow-md'
+              : 'border hover:opacity-80'
             }`}
           style={activeTab === 'bucket' ? { backgroundColor: activeThemeObj.accent } : { backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
         >
@@ -1496,12 +1502,12 @@ export default function App() {
         <button
           onClick={() => setActiveTab('budget')}
           className={`flex items-center gap-1.5 px-4.5 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all duration-300 hover:scale-105 cursor-pointer shadow-sm backdrop-blur-sm ${activeTab === 'budget'
-            ? 'text-white shadow-md'
-            : 'border hover:opacity-80'
+              ? 'text-white shadow-md'
+              : 'border hover:opacity-80'
             }`}
           style={activeTab === 'budget' ? { backgroundColor: activeThemeObj.accent } : { backgroundColor: activeThemeObj.card, color: activeThemeObj.text, borderColor: activeThemeObj.border }}
         >
-          <DollarSign size={13} /> Bill Splitter
+          <DollarSign size={13} /> Bill Splitter (50/50)
         </button>
       </div>
 
@@ -2657,8 +2663,8 @@ export default function App() {
                     key={theme.id}
                     onClick={() => { setCurrentTheme(theme.id); localStorage.setItem('dc_theme', theme.id); setIsThemeModalOpen(false); }}
                     className={`w-full p-3.5 rounded-2xl border text-xs font-bold flex items-center justify-between cursor-pointer transition-all ${isSelected
-                      ? 'border-rose-500 bg-rose-50/60 text-rose-700 shadow-xs ring-1 ring-rose-400'
-                      : 'border-stone-200 hover:bg-stone-50 text-stone-700 bg-white'
+                        ? 'border-rose-500 bg-rose-50/60 text-rose-700 shadow-xs ring-1 ring-rose-400'
+                        : 'border-stone-200 hover:bg-stone-50 text-stone-700 bg-white'
                       }`}
                   >
                     <span className="text-left">{theme.name}</span>
